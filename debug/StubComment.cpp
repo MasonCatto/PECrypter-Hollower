@@ -361,7 +361,6 @@ std::vector<char> ReconstructFragmentedPayload() {
 
     return decryptedPayload;
 }
-
 uint32_t CalculateCRC32(const char* data, size_t length) {
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < length; i++) {

