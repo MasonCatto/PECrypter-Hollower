@@ -66,7 +66,7 @@ def main():
 
     # Step 1: Compile stub
     run_command(
-        'x86_64-w64-mingw32-g++ -O2 -s -static -std=c++17 stub.cpp -ladvapi32 -o Stub.exe',
+        'x86_64-w64-mingw32-g++ -O2 -s -static -std=c++17 stub.cpp -ladvapi32 -lshlwapi -o Stub.exe',
         'Compiling stub'
     )
 
@@ -87,7 +87,7 @@ def main():
 
     # Step 3: Compile crypter
     run_command(
-        'x86_64-w64-mingw32-g++ -O2 -s -std=c++17 Crypter.cpp -ladvapi32 -o crypter.exe',
+        'x86_64-w64-mingw32-g++ -O2 -s -std=c++17 Crypter.cpp -ladvapi32 -lshlwapi -o crypter.exe',
         'Compiling crypter'
     )
 

