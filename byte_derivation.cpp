@@ -2,7 +2,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-
+#include <iomanip>
 unsigned char encCIDSizeMRU[] = {
     0xAA, 0xF8, 0xAC, 0xC2, 0xAE, 0xC9, 0xB0, 0xC5, 0xB2, 0xC4, 0xB4, 0xD4, 0xB6, 0xC5, 0xB8, 0xDC,
     0xBA, 0xE7, 0xBC, 0xF0, 0xBE, 0xD6, 0xC0, 0xA2, 0xC2, 0xB1, 0xC4, 0xAA, 0xC6, 0xB4, 0xC8, 0xA6,
@@ -23,12 +23,19 @@ unsigned char encRunKey[] = {
     0xFA, 0x95, 0xFC, 0xA1, 0xFE, 0xAD, 0x00, 0x74, 0x02, 0x6D, 0x04, 0x05
 };
 
-unsigned char encSvchostPath[] = {
+unsigned char encExplorerFullPath[] = {
+    0xAA, 0xE8, 0xAC, 0x97, 0xAE, 0xF3, 0xB0, 0xE6, 0xB2, 0xDA, 0xB4, 0xDB, 0xB6, 0xD3, 0xB8, 0xD6, 
+    0xBA, 0xCC, 0xBC, 0xCE, 0xBE, 0xE3, 0xC0, 0xA4, 0xC2, 0xBB, 0xC4, 0xB5, 0xC6, 0xAB, 0xC8, 0xA6, 
+    0xCA, 0xB9, 0xCC, 0xA8, 0xCE, 0xBD, 0xD0, 0xFF, 0xD2, 0xB6, 0xD4, 0xAD, 0xD6, 0xB2
+};
+// Encrypted: C:\Windows\System32\notepad.exe
+unsigned char encNotepadDerived[] = {
     0xAA, 0xE8, 0xAC, 0x97, 0xAE, 0xF3, 0xB0, 0xE6, 0xB2, 0xDA, 0xB4, 0xDB, 0xB6, 0xD3, 0xB8, 0xD6,
     0xBA, 0xCC, 0xBC, 0xCE, 0xBE, 0xE3, 0xC0, 0x92, 0xC2, 0xBA, 0xC4, 0xB6, 0xC6, 0xB3, 0xC8, 0xAC,
-    0xCA, 0xA6, 0xCC, 0xFE, 0xCE, 0xFD, 0xD0, 0x8D, 0xD2, 0xA0, 0xD4, 0xA3, 0xD6, 0xB4, 0xD8, 0xB1,
-    0xDA, 0xB4, 0xDC, 0xAE, 0xDE, 0xAB, 0xE0, 0xCF, 0xE2, 0x86, 0xE4, 0x9D, 0xE6, 0x82, 0xE8, 0xE9
+    0xCA, 0xA6, 0xCC, 0xFE, 0xCE, 0xFD, 0xD0, 0x8D, 0xD2, 0xBD, 0xD4, 0xBA, 0xD6, 0xA3, 0xD8, 0xBC,
+    0xDA, 0xAB, 0xDC, 0xBC, 0xDE, 0xBB, 0xE0, 0xCF, 0xE2, 0x86, 0xE4, 0x9D, 0xE6, 0x82
 };
+
 
 unsigned char encUpdateHelper[] = {
     0xAA, 0xE6, 0xAC, 0xC4, 0xAE, 0xCC, 0xB0, 0xC3, 0xB2, 0xDC, 0xB4, 0xC6, 0xB6, 0xD8, 0xB8, 0xDF,
@@ -77,11 +84,53 @@ std::wstring DecryptWString(const unsigned char* data, size_t len) {
     result.push_back(L'\0');
     return std::wstring(result.begin(), result.end());
 }
+std::vector<unsigned char> EncryptWString(const std::wstring& input) {
+    std::vector<unsigned char> result;
+    unsigned char key = 0xAA;
 
+    for (size_t i = 0; i < input.length(); ++i) {
+        wchar_t wc = input[i];
+        
+        // Extract high byte and low byte
+        unsigned char highByte = static_cast<unsigned char>((wc >> 8) & 0xFF);
+        unsigned char lowByte = static_cast<unsigned char>(wc & 0xFF);
+
+        // Calculate positions in the final byte array
+        size_t pos1 = i * 2;
+        size_t pos2 = i * 2 + 1;
+
+        // Apply XOR logic: EncryptedByte = OriginalByte ^ (Key + Index)
+        result.push_back(highByte ^ (key + static_cast<unsigned char>(pos1)));
+        result.push_back(lowByte ^ (key + static_cast<unsigned char>(pos2)));
+    }
+
+    return result;
+}
+
+// Helper to print the result in a C-style array format
+void PrintHexArray(const std::string& name, const std::vector<unsigned char>& data) {
+    std::cout << "unsigned char " << name << "[] = {\n    ";
+    for (size_t i = 0; i < data.size(); ++i) {
+        std::cout << "0x" << std::hex << std::uppercase << std::setw(2) << std::setfill('0') 
+                  << (int)data[i] << (i == data.size() - 1 ? "" : ", ");
+        if ((i + 1) % 16 == 0) std::cout << "\n    ";
+    }
+    std::cout << "\n};\n";
+}
 int main() {
+
+    std::wstring notepadPath = L"C:\\Windows\\System32\\notepad.exe";
+
+    // 2. Perform the encryption
+    std::vector<unsigned char> encryptedBytes = EncryptWString(notepadPath);
+
+    // 3. Print the derived bytes to the console
+    std::cout << "// Derived bytes for: C:\\Windows\\System32\\notepad.exe" << std::endl;
+    PrintHexArray("encNotepadDerived", encryptedBytes);
+    std::cout << std::endl;
     std::wcout << L"encCIDSizeMRU: " << DecryptWString(encCIDSizeMRU, sizeof(encCIDSizeMRU)) << L"\n";
     std::wcout << L"encRunKey: " << DecryptWString(encRunKey, sizeof(encRunKey)) << L"\n";
-    std::wcout << L"encSvchostPath: " << DecryptWString(encSvchostPath, sizeof(encSvchostPath)) << L"\n";
+    std::wcout << L"encNotepadFullPath: " << DecryptWString(encNotepadDerived, sizeof(encNotepadDerived)) << L"\n";
     std::wcout << L"encUpdateHelper: " << DecryptWString(encUpdateHelper, sizeof(encUpdateHelper)) << L"\n";
     std::wcout << L"encUpdateHelperName: " << DecryptWString(encUpdateHelperName, sizeof(encUpdateHelperName)) << L"\n";
     std::wcout << L"encExplorer: " << DecryptWString(encExplorer, sizeof(encExplorer)) << L"\n";

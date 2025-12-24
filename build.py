@@ -65,8 +65,9 @@ def main():
     cleanup_file('crypter.exe')  # Remove old crypter
 
     # Step 1: Compile stub
+    # Step 1: Compile stub with -mwindows
     run_command(
-        'x86_64-w64-mingw32-g++ -O2 -s -static -std=c++17 stub.cpp -ladvapi32 -lshlwapi -o Stub.exe',
+        'x86_64-w64-mingw32-g++ -O2 -s -static -std=c++17 stub.cpp -ladvapi32 -lshlwapi -mwindows -o Stub.exe',
         'Compiling stub'
     )
 

