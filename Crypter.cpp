@@ -548,8 +548,7 @@ void Cleanup() {
 
 
 int main(int argc, char* argv[]) {
-    system("color 0a");
-    
+
     CLIParams params;
     
     // Parse command line arguments
