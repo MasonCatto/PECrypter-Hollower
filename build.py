@@ -63,14 +63,13 @@ def main():
     cleanup_file('stub_bytes.h')  # Remove old header
     cleanup_file('crypter.exe')  # Remove old crypter
 
-    # Step 1: Compile stub
-    # Step 1: Compile stub with -mwindows
+    # Compile stub with -mwindows
     run_command(
         'x86_64-w64-mingw32-g++ -O2 -s -static -std=c++17 stub.cpp -ladvapi32 -lshlwapi -mwindows -o Stub.exe',
         'Compiling stub'
     )
 
-    # Step 2: Convert to C header
+    # Convert to C header
     print("[*] Converting Stub.exe to stub_bytes.h...")
     try:
         with open('Stub.exe', 'rb') as f:
@@ -85,20 +84,20 @@ def main():
         print(f"[-] Failed to generate header: {e}")
         sys.exit(1)
 
-    # Step 3: Compile crypter
+    # Compile crypter
     run_command(
         'x86_64-w64-mingw32-g++ -O2 -s -std=c++17 Crypter.cpp -ladvapi32 -lshlwapi -o crypter.exe',
         'Compiling crypter'
     )
 
-    # CRITICAL: Remove the intermediate Stub.exe before crypter runs
+    #  Remove the intermediate Stub.exe before crypter runs
     print("[*] Preparing for crypter execution...")
     if not cleanup_file('Stub.exe'):
         print("[-] Cannot remove Stub.exe - file might be locked!")
         print("[-] Try closing any applications that might have it open")
         sys.exit(1)
 
-    # Step 4: Run crypter
+    # Run crypter
     print(f"[*] Running crypter with payload: {args.payload}")
     result = subprocess.run(['crypter.exe', args.payload])
     
