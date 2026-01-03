@@ -19,7 +19,7 @@ def cleanup_file(filename):
         try:
             os.remove(filename)
             print(f"[+] Removed old {filename}")
-            time.sleep(0.5)  # Give OS time to release file locks
+            time.sleep(0.5) 
         except Exception as e:
             print(f"[-] Could not remove {filename}: {e}")
             return False
@@ -56,7 +56,6 @@ def main():
         print(f"[-] Payload file not found: {args.payload}")
         sys.exit(1)
 
-    print("=== AUTOMATED CRYPTER BUILDER ===")
 
     # Cleanup previous builds
     print("[*] Cleaning up previous builds...")
@@ -114,8 +113,6 @@ def main():
             print("[-] Final Stub.exe not found!")
     else:
         print("[-] Crypter execution failed!")
-
-    print("=== BUILD COMPLETE ===")
 
 if __name__ == "__main__":
     main()
