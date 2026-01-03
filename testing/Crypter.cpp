@@ -630,7 +630,7 @@ int main(int argc, char* argv[]) {
     }
     
     Cleanup();
-    cout << "\n[SUCCESS] " << g_outputFile << " created\n";
+    cout << "\n[SUCCESS] " << g_outputFile << " created with AES encryption!\n";
     
  
     cout << "\n[*] Summary:\n";

