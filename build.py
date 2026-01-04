@@ -57,13 +57,12 @@ def main():
         sys.exit(1)
 
 
-    # Cleanup previous builds
+    # Cleanup previous builds, remove stub, header, crypter
     print("[*] Cleaning up previous builds...")
-    cleanup_file('Stub.exe')  # Remove stub from previous compilation
-    cleanup_file('stub_bytes.h')  # Remove old header
-    cleanup_file('crypter.exe')  # Remove old crypter
+    cleanup_file('Stub.exe') 
+    cleanup_file('stub_bytes.h')
+    cleanup_file('crypter.exe')
 
-    # Compile stub with -mwindows
     run_command(
         'x86_64-w64-mingw32-g++ -O2 -s -static -std=c++17 stub.cpp -ladvapi32 -lshlwapi -mwindows -o Stub.exe',
         'Compiling stub'

